@@ -16,7 +16,7 @@ from ..utils.Timing_Analyzer import *
 from ..utils.tdmsUtils import *
 from ..utils.osUtils import *
 from ..utils.plotUtilscopy import *
-from ..config import SNSPD_5_Ch4 as cf
+from ..config import SMSPD_config as cf
 
 import argparse
 parser = argparse.ArgumentParser(description='')
@@ -132,9 +132,9 @@ def Simple_pulse_analysis(data, trig, time, time_previous, event):
     pulse_min_val = np.min(data)
     # pulse_max_T_val = cf.Pulse_startT + np.argmax(data[cf.Pulse_startT:cf.Pulse_endT])
     # pulse_min_T_val = cf.Pulse_rise_endT + np.argmin(data[cf.Pulse_rise_endT:cf.Pulse_endT])
-    pulse_rise_range_val = data[cf.Pulse_rise_endT] - data[cf.Pulse_startT]
-    pulse_fall_range_val = data[cf.Pulse_rise_endT] - data[cf.Pulse_fall_endT]
-    pulse_rise_range_ptb_val = pulse_max_val - pre_mean_val
+    # pulse_rise_range_val = data[cf.Pulse_rise_endT] - data[cf.Pulse_startT]
+    # pulse_fall_range_val = data[cf.Pulse_rise_endT] - data[cf.Pulse_fall_endT]
+    # pulse_rise_range_ptb_val = pulse_max_val - pre_mean_val
     pulse_fall_range_ptp_val = np.ptp(data)
     # Pulse_selection_val = pulse_rise_range_ptb_val > cf.cut_pulseRange
     pulse_time_val = time
