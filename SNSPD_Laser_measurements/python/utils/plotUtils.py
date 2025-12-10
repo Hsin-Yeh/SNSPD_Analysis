@@ -7,7 +7,6 @@ import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 import ROOT
-# import root_numpy
 
 def colors(i):
     # Colors for different data sets using tab10 palette
