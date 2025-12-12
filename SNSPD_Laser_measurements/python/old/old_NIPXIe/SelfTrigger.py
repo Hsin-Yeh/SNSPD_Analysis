@@ -19,11 +19,11 @@ from nptdms import TdmsFile
 from scipy.interpolate import CubicSpline
 from scipy.optimize import brentq
 
-# Local utility imports
-from Timing_Analyzer import *
-from tdmsUtils import *
-from osUtils import *
-from plotUtilscopy import *
+# User defined functions
+from ..utils.Timing_Analyzer import *
+from ..utils.tdmsUtils import *
+from ..utils.osUtils import *
+from ..utils.plotUtilscopy import *
 
 
 # =============================================================================

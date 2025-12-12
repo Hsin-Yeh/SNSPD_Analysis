@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import math
-import ROOT
 
 def alt_expo(x,p):
     y = math.exp(p[0]+p[1]*x[0])

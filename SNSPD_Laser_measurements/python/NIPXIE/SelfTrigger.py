@@ -19,11 +19,11 @@ from nptdms import TdmsFile
 from scipy.interpolate import CubicSpline
 from scipy.optimize import brentq
 
-# User defined functions
-from ..utils.Timing_Analyzer import *
-from ..utils.tdmsUtils import *
-from ..utils.osUtils import *
-from ..utils.plotUtilscopy import *
+# Local utility imports
+from utils.Timing_Analyzer import *
+from utils.tdmsUtils import *
+from utils.osUtils import *
+from utils.plotUtilscopy import *
 
 
 # =============================================================================
@@ -103,12 +103,15 @@ def calculate_rise_fall_times(data: np.ndarray) -> Dict[str, float]:
     """
     Calculate rise/fall time constants using 10%-90% method and slew rate.
     
-    Returns dict with rise_time_10_90, fall_time_90_10, rise_slew_rate, fall_slew_rate.
+    Returns dict with rise_time_10_90, fall_time_90_10, rise_slew_rate, fall_slew_rate, rise_amplitude.
     """
     # Find pulse baseline and extrema
     baseline = np.mean(data[:10]) if len(data) >= 10 else data[0]
     pulse_min = np.min(data)
     idx_min = np.argmin(data)
+    
+    # Calculate rising amplitude (baseline to minimum)
+    rise_amplitude = abs(baseline - pulse_min)
     
     # Calculate threshold levels
     level_10 = baseline - 0.1 * (baseline - pulse_min)
@@ -137,6 +140,7 @@ def calculate_rise_fall_times(data: np.ndarray) -> Dict[str, float]:
     fall_slew_rate = abs(np.max(np.diff(fall_data))) if len(fall_data) > 1 else 0
     
     return {
+        'rise_amplitude': rise_amplitude,
         'rise_time_10_90': rise_time_10_90,
         'fall_time_90_10': fall_time_90_10,
         'rise_slew_rate': rise_slew_rate,
@@ -175,6 +179,7 @@ def analyze_single_event(data: np.ndarray, trig: np.ndarray, time: float,
         "pulse_time_interval": float(time_previous - time),
         "trigger_check": float(trig_check),
         "pass_selection": TRIGGER_CUT_MIN <= trig_check <= TRIGGER_CUT_MAX,
+        "rise_amplitude": float(timing_params['rise_amplitude']),
         "rise_time_10_90": float(timing_params['rise_time_10_90']),
         "fall_time_90_10": float(timing_params['fall_time_90_10']),
         "rise_slew_rate": float(timing_params['rise_slew_rate']),
