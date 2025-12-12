@@ -501,32 +501,7 @@ def main():
     DEBUG = args.debug_report
     DISPLAY = args.display_report
     
-    # Collect all TDMS files (expand directories)
-    tdms_files = []
-    for path in args.in_filenames:
-        print(f"DEBUG: Checking path: {path}, isdir: {os.path.isdir(path)}, isfile: {os.path.isfile(path)}")
-        if os.path.isdir(path):
-            # Find all TDMS files in directory
-            for root, dirs, files in os.walk(path):
-                for file in files:
-                    if file.endswith('.tdms'):
-                        full_path = os.path.join(root, file)
-                        tdms_files.append(full_path)
-                        print(f"DEBUG: Found TDMS file: {full_path}")
-            if not any(os.path.dirname(f).startswith(os.path.abspath(path)) or f.startswith(path) for f in tdms_files):
-                print(f"Warning: No TDMS files found in directory: {path}")
-        elif os.path.isfile(path):
-            tdms_files.append(path)
-        else:
-            print(f"Error: Path not found: {path}")
-    
-    if not tdms_files:
-        print("Error: No TDMS files to process")
-        return
-    
-    print(f"Found {len(tdms_files)} TDMS file(s) to process\n")
-    
-    for in_filename in tdms_files:
+    for in_filename in args.in_filenames:
         print("\n" + "="*60)
         print(f"Processing: {in_filename}")
         print("="*60)

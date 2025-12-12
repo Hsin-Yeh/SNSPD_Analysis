@@ -40,38 +40,47 @@ The main analysis script is `SelfTrigger.py`. It processes TDMS files and genera
 #### Basic Usage
 
 ```bash
-python SelfTrigger.py <path_to_tdms_file_or_directory>
+python3 SelfTrigger.py <path_to_tdms_file_or_directory>
 ```
 
 #### Command-Line Options
 
-- `--method [spline|simple]`: Choose trigger time calculation method
+- `--trigger_method [spline|simple]`: Choose trigger time calculation method
   - `spline` (default): Accurate method using cubic spline interpolation (slower)
   - `simple`: Fast approximation using threshold crossing (10-50x faster)
 
-- `--display`: Show matplotlib plots for each pulse (useful for debugging)
+- `--display_report`, `-p`: Display matplotlib plots for each pulse (useful for debugging)
 
-- `--trigger_check_min <value>`: Minimum trigger check value (default: 196)
+- `--debug_report`, `-b`: Enable debug output messages
 
-- `--trigger_check_max <value>`: Maximum trigger check value (default: 198)
+- `--outputDir <path>`, `-d`: Output directory (default: ./Stats)
+
+- `--report <N>`, `-r`: Report progress every N events (default: 1000)
+
+- `--subset <N>`, `-s`: Process only first N events (default: -1 for all)
+
+- `--checkSingleEvent <N>`, `-c`: Analyze only a specific event number (default: -1)
 
 #### Examples
 
 ```bash
 # Analyze a single TDMS file with spline method
-python SelfTrigger.py /path/to/data.tdms
+python3 SelfTrigger.py /path/to/data.tdms
 
 # Analyze with fast simple method
-python SelfTrigger.py /path/to/data.tdms --method simple
+python3 SelfTrigger.py /path/to/data.tdms --trigger_method simple
 
 # Analyze all TDMS files in a directory
-python SelfTrigger.py /path/to/data_directory/
+python3 SelfTrigger.py /path/to/data_directory/
 
 # Show plots for debugging
-python SelfTrigger.py /path/to/data.tdms --display
+python3 SelfTrigger.py /path/to/data.tdms --display_report
 
-# Use custom trigger check range
-python SelfTrigger.py /path/to/data.tdms --trigger_check_min 195 --trigger_check_max 199
+# Process only first 100 events
+python3 SelfTrigger.py /path/to/data.tdms --subset 100
+
+# Custom output directory with debug mode
+python3 SelfTrigger.py /path/to/data.tdms -d ./output -b
 ```
 
 #### Output Format
@@ -147,7 +156,7 @@ The package includes several plotting scripts for visualizing analysis results.
 Plot peak-to-peak amplitude and/or rise amplitude vs bias current or optical power.
 
 ```bash
-python plot_pulse_characteristics.py <path_to_json_directory> [options]
+python3 plot_pulse_characteristics.py <path_to_json_directory> [options]
 ```
 
 **Options:**
@@ -165,16 +174,16 @@ python plot_pulse_characteristics.py <path_to_json_directory> [options]
 **Examples:**
 ```bash
 # Generate all 4 plots
-python plot_pulse_characteristics.py /path/to/SNSPD_analyzed_json/
+python3 plot_pulse_characteristics.py /path/to/SNSPD_analyzed_json/
 
 # Plot only vs bias current
-python plot_pulse_characteristics.py /path/to/SNSPD_analyzed_json/ --mode vs_bias
+python3 plot_pulse_characteristics.py /path/to/SNSPD_analyzed_json/ --mode vs_bias
 
 # Plot only PTP (both vs bias and vs power)
-python plot_pulse_characteristics.py /path/to/SNSPD_analyzed_json/ --mode ptp
+python3 plot_pulse_characteristics.py /path/to/SNSPD_analyzed_json/ --mode ptp
 
 # Plot only rise amplitude vs power
-python plot_pulse_characteristics.py /path/to/SNSPD_analyzed_json/ --mode vs_power --variable rise_amplitude
+python3 plot_pulse_characteristics.py /path/to/SNSPD_analyzed_json/ --mode vs_power --variable rise_amplitude
 ```
 
 **Output Files:**
@@ -188,7 +197,7 @@ python plot_pulse_characteristics.py /path/to/SNSPD_analyzed_json/ --mode vs_pow
 Plot signal rate, dark count rate, and efficiency vs bias current.
 
 ```bash
-python plot_rates_vs_bias_v2.py <path_to_json_directory> [options]
+python3 plot_rates_vs_bias_v2.py <path_to_json_directory> [options]
 ```
 
 **Options:**
@@ -201,10 +210,10 @@ python plot_rates_vs_bias_v2.py <path_to_json_directory> [options]
 **Examples:**
 ```bash
 # Single plots for each power
-python plot_rates_vs_bias_v2.py /path/to/SNSPD_analyzed_json/ --mode single
+python3 plot_rates_vs_bias_v2.py /path/to/SNSPD_analyzed_json/ --mode single
 
 # Combined multi-power plot
-python plot_rates_vs_bias_v2.py /path/to/SNSPD_analyzed_json/ --mode multi
+python3 plot_rates_vs_bias_v2.py /path/to/SNSPD_analyzed_json/ --mode multi
 ```
 
 #### Plot Count Rates vs Power
@@ -212,7 +221,7 @@ python plot_rates_vs_bias_v2.py /path/to/SNSPD_analyzed_json/ --mode multi
 Plot signal rate, dark count rate, and efficiency vs optical power.
 
 ```bash
-python plot_rates_vs_power.py <path_to_json_directory> [options]
+python3 plot_rates_vs_power.py <path_to_json_directory> [options]
 ```
 
 **Options:**
@@ -222,10 +231,10 @@ python plot_rates_vs_power.py <path_to_json_directory> [options]
 **Examples:**
 ```bash
 # Single plots for each bias
-python plot_rates_vs_power.py /path/to/SNSPD_analyzed_json/ --mode single
+python3 plot_rates_vs_power.py /path/to/SNSPD_analyzed_json/ --mode single
 
 # Combined multi-bias plot
-python plot_rates_vs_power.py /path/to/SNSPD_analyzed_json/ --mode multi
+python3 plot_rates_vs_power.py /path/to/SNSPD_analyzed_json/ --mode multi
 ```
 
 #### Plot Event-by-Event Data
@@ -233,7 +242,7 @@ python plot_rates_vs_power.py /path/to/SNSPD_analyzed_json/ --mode multi
 Plot histograms and scatter plots of individual pulse properties.
 
 ```bash
-python plot_event_data.py <path_to_json_file> [options]
+python3 plot_event_data.py <path_to_json_file> [options]
 ```
 
 **Options:**
@@ -241,7 +250,7 @@ python plot_event_data.py <path_to_json_file> [options]
 
 **Example:**
 ```bash
-python plot_event_data.py /path/to/SNSPD_analyzed_json/sample.json
+python3 plot_event_data.py /path/to/SNSPD_analyzed_json/sample.json
 ```
 
 **Output:**
@@ -253,7 +262,7 @@ python plot_event_data.py /path/to/SNSPD_analyzed_json/sample.json
 Convenience script to generate all plot types at once.
 
 ```bash
-python plot_all.py <path_to_json_directory> [options]
+python3 plot_all.py <path_to_json_directory> [options]
 ```
 
 **Options:**
@@ -261,7 +270,7 @@ python plot_all.py <path_to_json_directory> [options]
 
 **Example:**
 ```bash
-python plot_all.py /path/to/SNSPD_analyzed_json/
+python3 plot_all.py /path/to/SNSPD_analyzed_json/
 ```
 
 This generates:
@@ -275,14 +284,14 @@ Complete analysis workflow from raw data to plots:
 
 ```bash
 # Step 1: Analyze TDMS files
-python SelfTrigger.py /path/to/SNSPD_rawdata/
+python3 SelfTrigger.py /path/to/SNSPD_rawdata/
 
 # Step 2: Generate all plots
-python plot_all.py /path/to/SNSPD_analyzed_json/
+python3 plot_all.py /path/to/SNSPD_analyzed_json/
 
 # Step 3: Generate specific plots as needed
-python plot_pulse_characteristics.py /path/to/SNSPD_analyzed_json/ --mode vs_bias
-python plot_event_data.py /path/to/SNSPD_analyzed_json/specific_file.json
+python3 plot_pulse_characteristics.py /path/to/SNSPD_analyzed_json/ --mode vs_bias
+python3 plot_event_data.py /path/to/SNSPD_analyzed_json/specific_file.json
 ```
 
 ## File Naming Convention
