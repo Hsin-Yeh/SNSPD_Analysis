@@ -262,15 +262,27 @@ python3 plot_event_data.py /path/to/SNSPD_analyzed_json/sample.json
 Convenience script to generate all plot types at once.
 
 ```bash
-python3 plot_all.py <path_to_json_directory> [options]
+python3 plot_all.py --input_dir <path_to_json_directory> [options]
 ```
 
 **Options:**
-- `--output_dir <path>`: Output directory for all plots
+- `--input_dir <path>`, `-i`: Input directory (or directories) with JSON files (default: ./plots/test)
+- `--output_dir <path>`, `-d`: Output directory for all plots (default: current directory)
+- `--pattern <pattern>`, `-p`: File pattern to match (default: *_analysis.json)
+- `--mode {all|vs_bias|vs_power|pulse}`, `-m`: Which plots to generate (default: all)
+- `--log_scale`: Use log scale for power plots
+- `--recursive`, `-r`: Search recursively in subdirectories (default: True)
 
-**Example:**
+**Examples:**
 ```bash
-python3 plot_all.py /path/to/SNSPD_analyzed_json/
+# Generate all plots from a directory
+python3 plot_all.py -i /path/to/SNSPD_analyzed_json/
+
+# Generate only rate vs bias plots
+python3 plot_all.py --input_dir /path/to/SNSPD_analyzed_json/ --mode vs_bias
+
+# Multiple input directories with custom output
+python3 plot_all.py -i dir1/ dir2/ -d output_plots/
 ```
 
 This generates:

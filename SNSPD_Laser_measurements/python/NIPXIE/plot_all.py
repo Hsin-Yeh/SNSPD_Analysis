@@ -63,8 +63,28 @@ def main():
     power_groups = group_by_power(data)
     bias_groups = group_by_bias(data)
     
-    # Create output directory if needed
-    os.makedirs(args.output_dir, exist_ok=True)
+    # Extract sample name from input directory path
+    # Example: ../../SNSPD_analyzed_json/SMSPD_3/ -> SMSPD_3
+    first_input_dir = input_dirs[0]
+    path_parts = Path(first_input_dir).parts
+    
+    # Find the component after 'SNSPD_analyzed_json'
+    sample_name = None
+    for i, part in enumerate(path_parts):
+        if 'SNSPD_analyzed_json' in part and i + 1 < len(path_parts):
+            sample_name = path_parts[i + 1]
+            break
+    
+    # Fallback to last component if SNSPD_analyzed_json not found
+    if sample_name is None:
+        sample_name = os.path.basename(os.path.normpath(first_input_dir))
+    
+    # Create output directory structure: output/{sample_name}/
+    output_dir = os.path.join(args.output_dir, 'output', sample_name)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    print(f"Sample name: {sample_name}")
+    print(f"Plots will be saved to: {output_dir}")
     
     # Generate plots based on mode
     if args.mode in ['all', 'vs_bias']:
@@ -75,12 +95,12 @@ def main():
         # Individual power plots
         print("\n--- Individual Power Levels ---")
         for power, power_data in sorted(power_groups.items()):
-            plot_single_power_vs_bias(power, power_data, args.output_dir)
+            plot_single_power_vs_bias(power, power_data, output_dir)
         
         # Combined multi-power plot
         if len(power_groups) > 1:
             print("\n--- Combined Multi-Power Comparison ---")
-            plot_multi_power_vs_bias(power_groups, args.output_dir)
+            plot_multi_power_vs_bias(power_groups, output_dir)
     
     if args.mode in ['all', 'vs_power']:
         print("\n" + "="*60)
@@ -90,12 +110,12 @@ def main():
         # Individual bias plots
         print("\n--- Individual Bias Voltages ---")
         for bias, bias_data in sorted(bias_groups.items()):
-            plot_single_bias_vs_power(bias, bias_data, args.output_dir, args.log_scale)
+            plot_single_bias_vs_power(bias, bias_data, output_dir, args.log_scale)
         
         # Combined multi-bias plot
         if len(bias_groups) > 1:
             print("\n--- Combined Multi-Bias Comparison ---")
-            plot_multi_bias_vs_power(bias_groups, args.output_dir, args.log_scale)
+            plot_multi_bias_vs_power(bias_groups, output_dir, args.log_scale)
     
     if args.mode in ['all', 'pulse'] and HAS_PULSE_PLOTS:
         print("\n" + "="*60)
@@ -103,15 +123,15 @@ def main():
         print("="*60)
         
         print("\n--- Pulse PTP vs Bias Voltage ---")
-        plot_pulse_ptp_vs_bias(power_groups, args.output_dir)
+        plot_pulse_ptp_vs_bias(power_groups, output_dir)
         
         print("\n--- Pulse PTP vs Power ---")
-        plot_pulse_ptp_vs_power(bias_groups, args.output_dir)
+        plot_pulse_ptp_vs_power(bias_groups, output_dir)
     
     print("\n" + "="*60)
     print("PLOTTING COMPLETE")
     print("="*60)
-    print(f"\nAll plots saved to: {args.output_dir}")
+    print(f"\nAll plots saved to: {output_dir}")
 
 if __name__ == "__main__":
     main()
