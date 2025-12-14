@@ -155,10 +155,23 @@ def plot_multi_bias_vs_power(bias_groups, output_dir, log_scale=False):
             signal_rates.append(np.mean([d['signal_rate'] for d in items]))
             dark_count_rates.append(np.mean([d['dark_count_rate'] for d in items]))
             efficiencies.append(np.mean([d['efficiency'] for d in items]))
-            count_rate_errors.append(np.mean([d['count_rate_error'] for d in items]))
-            signal_rate_errors.append(np.mean([d['signal_rate_error'] for d in items]))
-            dark_count_rate_errors.append(np.mean([d['dark_count_rate_error'] for d in items]))
-            efficiency_errors.append(np.mean([d['efficiency_error'] for d in items]))
+            
+            # Proper error propagation when averaging:
+            # For count rates: standard error of the mean
+            # If multiple measurements, use std/sqrt(n), otherwise use the Poisson error
+            if len(items) > 1:
+                count_rate_errors.append(np.std([d['count_rate'] for d in items], ddof=1) / np.sqrt(len(items)))
+                signal_rate_errors.append(np.std([d['signal_rate'] for d in items], ddof=1) / np.sqrt(len(items)))
+                dark_count_rate_errors.append(np.std([d['dark_count_rate'] for d in items], ddof=1) / np.sqrt(len(items)))
+                # For efficiency with multiple measurements, propagate binomial errors
+                eff_errs = [d['efficiency_error'] for d in items]
+                efficiency_errors.append(np.sqrt(np.sum(np.array(eff_errs)**2)) / len(items))
+            else:
+                # Single measurement: use the calculated errors from analysis
+                count_rate_errors.append(items[0]['count_rate_error'])
+                signal_rate_errors.append(items[0]['signal_rate_error'])
+                dark_count_rate_errors.append(items[0]['dark_count_rate_error'])
+                efficiency_errors.append(items[0]['efficiency_error'])
         
         if not powers:
             continue

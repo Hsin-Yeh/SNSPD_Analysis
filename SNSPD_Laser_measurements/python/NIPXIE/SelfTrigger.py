@@ -19,7 +19,7 @@ from nptdms import TdmsFile
 from scipy.interpolate import CubicSpline
 from scipy.optimize import brentq
 
-# Local utility imports
+# User defined functions
 from utils.Timing_Analyzer import *
 from utils.tdmsUtils import *
 from utils.osUtils import *
@@ -317,10 +317,44 @@ def calculate_summary_statistics(events: List[Dict]) -> Dict:
     signal_rate = signal_count / total_time if total_time > 0 else 0
     dark_count_rate = dark_count / total_time if total_time > 0 else 0
     
-    # Poisson errors
-    count_rate_error = np.sqrt(total_events) / total_time if total_time > 0 else 0
-    signal_rate_error = np.sqrt(signal_count) / total_time if total_time > 0 and signal_count > 0 else 0
-    dark_count_rate_error = np.sqrt(dark_count) / total_time if total_time > 0 and dark_count > 0 else 0
+    # Calculate standard errors using binning approach
+    # Divide measurement into time bins to get independent rate estimates
+    n_bins = min(10, total_events // 10) if total_events >= 100 else max(2, total_events // 5)
+    
+    if total_time > 0 and n_bins >= 2:
+        time_min = min(time_values)
+        time_max = max(time_values)
+        bin_edges = np.linspace(time_min, time_max, n_bins + 1)
+        
+        # Calculate rate in each bin
+        count_rates_binned = []
+        signal_rates_binned = []
+        dark_rates_binned = []
+        
+        for i in range(n_bins):
+            bin_start = bin_edges[i]
+            bin_end = bin_edges[i + 1]
+            bin_duration = bin_end - bin_start
+            
+            if bin_duration > 0:
+                # Count events in this bin
+                events_in_bin = [e for e in events if bin_start <= e['pulse_time'] < bin_end]
+                signal_in_bin = [e for e in signal_events if bin_start <= e['pulse_time'] < bin_end]
+                dark_in_bin = [e for e in dark_events if bin_start <= e['pulse_time'] < bin_end]
+                
+                count_rates_binned.append(len(events_in_bin) / bin_duration)
+                signal_rates_binned.append(len(signal_in_bin) / bin_duration)
+                dark_rates_binned.append(len(dark_in_bin) / bin_duration)
+        
+        # Standard error = std / sqrt(n)
+        count_rate_error = np.std(count_rates_binned, ddof=1) / np.sqrt(len(count_rates_binned)) if len(count_rates_binned) > 1 else 0
+        signal_rate_error = np.std(signal_rates_binned, ddof=1) / np.sqrt(len(signal_rates_binned)) if len(signal_rates_binned) > 1 and signal_count > 0 else 0
+        dark_count_rate_error = np.std(dark_rates_binned, ddof=1) / np.sqrt(len(dark_rates_binned)) if len(dark_rates_binned) > 1 and dark_count > 0 else 0
+    else:
+        # Fallback to Poisson errors for small datasets
+        count_rate_error = np.sqrt(total_events) / total_time if total_time > 0 else 0
+        signal_rate_error = np.sqrt(signal_count) / total_time if total_time > 0 and signal_count > 0 else 0
+        dark_count_rate_error = np.sqrt(dark_count) / total_time if total_time > 0 and dark_count > 0 else 0
     
     # Efficiency and binomial error
     efficiency = (signal_rate / SOURCE_RATE) if signal_rate > 0 else 0
@@ -504,16 +538,13 @@ def main():
     # Collect all TDMS files (expand directories)
     tdms_files = []
     for path in args.in_filenames:
-        print(f"DEBUG: Checking path: {path}, isdir: {os.path.isdir(path)}, isfile: {os.path.isfile(path)}")
         if os.path.isdir(path):
             # Find all TDMS files in directory
             for root, dirs, files in os.walk(path):
                 for file in files:
                     if file.endswith('.tdms'):
-                        full_path = os.path.join(root, file)
-                        tdms_files.append(full_path)
-                        print(f"DEBUG: Found TDMS file: {full_path}")
-            if not any(os.path.dirname(f).startswith(os.path.abspath(path)) or f.startswith(path) for f in tdms_files):
+                        tdms_files.append(os.path.join(root, file))
+            if not tdms_files or not any(os.path.dirname(f).startswith(os.path.abspath(path)) or f.startswith(path) for f in tdms_files):
                 print(f"Warning: No TDMS files found in directory: {path}")
         elif os.path.isfile(path):
             tdms_files.append(path)
