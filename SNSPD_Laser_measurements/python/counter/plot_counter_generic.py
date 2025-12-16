@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Generic counter data plotter - works with different measurement folders
-Usage: python plot_counter_generic.py <data_folder> [--bias 68,70,72] [--remove-lowest N]
+Usage: python plot_counter_generic.py <data_folder> [--bias 68,70,72] [--powers all/369,446,534]
 """
 
 import os
@@ -13,6 +13,76 @@ from datetime import datetime
 from scipy.optimize import curve_fit
 import re
 import argparse
+
+def setup_atlas_style():
+    """
+    Setup ATLAS/ROOT-inspired plotting style for matplotlib
+    Based on ATLAS rootlogon.C configuration
+    """
+    import matplotlib as mpl
+    
+    # Use white background with black elements
+    plt.style.use('default')
+    
+    # Set figure and axes colors
+    mpl.rcParams['figure.facecolor'] = 'white'
+    mpl.rcParams['axes.facecolor'] = 'white'
+    mpl.rcParams['savefig.facecolor'] = 'white'
+    
+    # Set margins (as fraction of figure size)
+    mpl.rcParams['figure.subplot.left'] = 0.15
+    mpl.rcParams['figure.subplot.right'] = 0.88  # 1 - 0.12
+    mpl.rcParams['figure.subplot.bottom'] = 0.16
+    mpl.rcParams['figure.subplot.top'] = 0.95  # 1 - 0.05
+    
+    # Font settings - use serif font similar to ROOT
+    mpl.rcParams['font.family'] = 'serif'
+    mpl.rcParams['font.size'] = 16
+    mpl.rcParams['axes.labelsize'] = 18
+    mpl.rcParams['axes.titlesize'] = 20
+    mpl.rcParams['xtick.labelsize'] = 16
+    mpl.rcParams['ytick.labelsize'] = 16
+    mpl.rcParams['legend.fontsize'] = 14
+    
+    # Line and marker settings - bold style
+    mpl.rcParams['lines.linewidth'] = 2.0
+    mpl.rcParams['lines.markersize'] = 8
+    mpl.rcParams['lines.markeredgewidth'] = 1.5
+    
+    # Grid settings
+    mpl.rcParams['grid.alpha'] = 0.3
+    mpl.rcParams['grid.linewidth'] = 0.8
+    
+    # Tick settings - ticks on all sides
+    mpl.rcParams['xtick.direction'] = 'in'
+    mpl.rcParams['ytick.direction'] = 'in'
+    mpl.rcParams['xtick.top'] = True
+    mpl.rcParams['ytick.right'] = True
+    mpl.rcParams['xtick.major.size'] = 8
+    mpl.rcParams['ytick.major.size'] = 8
+    mpl.rcParams['xtick.minor.size'] = 4
+    mpl.rcParams['ytick.minor.size'] = 4
+    mpl.rcParams['xtick.major.width'] = 1.2
+    mpl.rcParams['ytick.major.width'] = 1.2
+    mpl.rcParams['xtick.minor.width'] = 1.0
+    mpl.rcParams['ytick.minor.width'] = 1.0
+    mpl.rcParams['xtick.minor.visible'] = True
+    mpl.rcParams['ytick.minor.visible'] = True
+    
+    # Axes settings
+    mpl.rcParams['axes.linewidth'] = 1.2
+    mpl.rcParams['axes.labelweight'] = 'normal'
+    mpl.rcParams['axes.grid'] = True
+    mpl.rcParams['axes.axisbelow'] = True  # Grid behind data
+    
+    # Legend settings
+    mpl.rcParams['legend.frameon'] = True
+    mpl.rcParams['legend.framealpha'] = 0.95
+    mpl.rcParams['legend.edgecolor'] = 'black'
+    mpl.rcParams['legend.fancybox'] = False
+    mpl.rcParams['legend.shadow'] = False
+    mpl.rcParams['legend.borderpad'] = 0.5
+    mpl.rcParams['legend.labelspacing'] = 0.4
 
 def parse_filename(filename):
     """Extract power and timestamp from filename"""
@@ -166,10 +236,15 @@ def select_bias_voltages(bias_spec, available_biases):
 
 
 def main():
+    # Setup ATLAS plotting style
+    setup_atlas_style()
+    
     parser = argparse.ArgumentParser(description='Plot counter data from a measurement folder')
     parser.add_argument('data_folder', type=str, help='Path to data folder (e.g., /path/to/SMSPD_data/SMSPD_3/test/2-7/6K)')
     parser.add_argument('--bias', type=str, default='66,68,70,72,74', 
                         help='Bias voltages: "all"/-1 for all, "20%%"/"50%%" for percentage, or comma-separated values in mV (default: 66,68,70,72,74)')
+    parser.add_argument('--powers', type=str, default='all', 
+                        help='Power levels: "all" for all available, or comma-separated values in nW (default: all)')
     parser.add_argument('--dark-subtract-mode', type=str, default='closest', 
                         help='Dark count subtraction method: "closest" (closest in time) or "latest" (latest file) (default: closest)')
     parser.add_argument('--remove-lowest', type=int, default=0, help='Number of lowest power points to remove (default: 0)')
@@ -178,6 +253,7 @@ def main():
     parser.add_argument('--fit-range', type=str, default='all', help='Fit range: "all" or "min_power,max_power" in nW (default: all)')
     parser.add_argument('--fit-line-range', type=str, default='all', help='Fit line display range: "all" or "min_power,max_power" in nW (default: all)')
     parser.add_argument('--loglog', type=str, default='false', help='Use log-log scale for power plot: "true" or "false" (default: false)')
+    parser.add_argument('--yaxis-scale', type=str, default='auto', help='Y-axis scale: "auto" or "min,max" (default: auto)')
     parser.add_argument('--measurement-name', type=str, default=None, help='Measurement name for output (default: derived from folder path)')
     
     args = parser.parse_args()
@@ -202,6 +278,16 @@ def main():
     # Parse target bias voltages based on specification
     target_biases_mv = select_bias_voltages(args.bias, available_biases)
     print(f"Selected bias voltages: {target_biases_mv} mV")
+    
+    # Filter power levels based on --powers argument
+    if args.powers.lower() != 'all':
+        try:
+            selected_powers = [float(p.strip()) for p in args.powers.split(',')]
+            # Filter power_files to only include selected powers
+            power_files = {p: f for p, f in power_files.items() if p in selected_powers}
+            print(f"Selected powers: {selected_powers} nW")
+        except ValueError:
+            print(f"Warning: Invalid power specification '{args.powers}', using all powers")
     
     if not power_files:
         print(f"No signal data files found in {data_dir}")
@@ -235,10 +321,10 @@ def main():
     output_dir = Path('output') / measurement_name
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Create two subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7))
+    # Create two subplots with ATLAS style
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
     
-    # Colors for different powers
+    # Colors for different powers - use distinguishable colors
     colors = plt.cm.tab10(np.linspace(0, 1, max(10, len(power_files))))
     
     # Data structure for second plot
@@ -289,45 +375,46 @@ def main():
         
         # Plot 1: Count rate vs bias voltage (dark subtracted)
         ax1.plot(bias_voltages * 1000, count_rates_subtracted, 'o',
-                label=f'{power} nW', color=colors[idx], 
-                markersize=6, alpha=0.8)
+                label=f'{power} nW', color=colors[idx], alpha=0.9)
         
-        # Collect data for second plot
-        for row_idx, (bias, rate) in enumerate(zip(bias_voltages, count_rates)):
-            if row_idx not in row_data:
-                row_data[row_idx] = {}
-            row_data[row_idx][power] = (bias, rate)
+        # Collect data for second plot - key by actual bias voltage in mV
+        for bias, rate in zip(bias_voltages, count_rates):
+            bias_mv = bias * 1000  # Convert to mV for consistent keying
+            if bias_mv not in row_data:
+                row_data[bias_mv] = {}
+            row_data[bias_mv][power] = rate
     
-    # Configure first plot
-    ax1.set_xlabel('Bias Voltage (mV)', fontsize=14)
-    ax1.set_ylabel('Count Rate (counts/s)', fontsize=13)
+    # Configure first plot - ATLAS style
+    ax1.set_xlabel('Bias Voltage (mV)')
+    ax1.set_ylabel('Count Rate (counts/s)')
     
     title_suffix = ' (Dark Subtracted)' if latest_dark_file else ''
-    ax1.set_title(f'{measurement_name}{title_suffix}', fontsize=15)
-    ax1.legend(fontsize=10, loc='best')
-    ax1.grid(True, alpha=0.3)
+    ax1.text(0.05, 0.95, f'{measurement_name}{title_suffix}', 
+             transform=ax1.transAxes, fontsize=18, fontweight='bold',
+             verticalalignment='top')
+    ax1.legend(loc='best', frameon=True)
     ax1.set_ylim(bottom=0)
+    
+    # Enable minor ticks
+    ax1.minorticks_on()
     
     # Plot dark count curve from latest dark file on same y-axis
     if latest_dark_file:
         dark_bias, dark_rates = read_counter_file(latest_dark_file)
-        ax1.plot(dark_bias * 1000, dark_rates, 's:', color='gray', 
-                linewidth=2, markersize=4, alpha=0.7,
-                label='Dark Count')
-        ax1.legend(fontsize=10, loc='best')
+        ax1.plot(dark_bias * 1000, dark_rates, 's:', color='dimgray', 
+                alpha=0.7, label='Dark Count')
+        ax1.legend(loc='best', frameon=True)
     
     # Plot 2: Count rate vs power for selected bias voltages
     colors_biases = plt.cm.rainbow(np.linspace(0, 1, len(target_biases_mv)))
     color_idx = 0
     
-    all_rows = sorted(row_data.keys())
-    valid_rows = [row_idx for row_idx in all_rows if len(row_data[row_idx]) > 1]
+    # Sort bias voltages and filter to those with multiple power points
+    all_bias_mv = sorted(row_data.keys())
+    valid_bias_mv = [bias_mv for bias_mv in all_bias_mv if len(row_data[bias_mv]) > 1]
     
-    if valid_rows:
-        for row_idx in valid_rows:
-            power_rate_pairs = sorted(row_data[row_idx].items())
-            bias_mv = power_rate_pairs[0][1][0] * 1000
-            
+    if valid_bias_mv:
+        for bias_mv in valid_bias_mv:
             # Check if this bias is close to any target
             matched = False
             for target in target_biases_mv:
@@ -338,18 +425,19 @@ def main():
             if not matched:
                 continue
             
-            powers = np.array([p for p, (bias, rate) in power_rate_pairs])
-            rates = np.array([rate for p, (bias, rate) in power_rate_pairs])
+            power_rate_pairs = sorted(row_data[bias_mv].items())
+            powers = np.array([p for p, rate in power_rate_pairs])
+            rates = np.array([rate for p, rate in power_rate_pairs])
             
-            # Remove lowest N power points if requested
-            if args.remove_lowest > 0 and len(powers) > args.remove_lowest:
-                for _ in range(args.remove_lowest):
-                    min_idx = np.argmin(powers)
-                    powers = np.delete(powers, min_idx)
-                    rates = np.delete(rates, min_idx)
+            # Filter out non-positive rates and very small values for log-log plots
+            if args.loglog.lower() == 'true':
+                # For log-log plots, remove zeros and very small values
+                min_threshold = 1e-3  # Minimum threshold for log scale
+                valid_mask = (rates > min_threshold) & (powers > min_threshold)
+            else:
+                # For linear plots, just remove non-positive rates
+                valid_mask = rates > 0
             
-            # Filter out non-positive rates
-            valid_mask = rates > 0
             powers_valid = powers[valid_mask]
             rates_valid = rates[valid_mask]
             
@@ -406,8 +494,7 @@ def main():
                             # Plot data points with power-law fit label
                             label_combined = f'{bias_mv:.1f}mV: n={n:.2f}±{n_err:.2f}, χ²/ndf={chi2_ndf:.2f}'
                             ax2.plot(powers_valid, rates_valid, 'o', 
-                                    label=label_combined, color=plot_color,
-                                    markersize=8, alpha=0.8)
+                                    label=label_combined, color=plot_color, alpha=0.9)
                             
                             print(f"  Bias {bias_mv:.1f} mV power-law fit:")
                             print(f"    Rate = ({A:.2e} ± {A_err:.2e}) * Power^({n:.3f} ± {n_err:.3f})")
@@ -437,8 +524,7 @@ def main():
                             # Plot data points with combined label (compact format)
                             label_combined = f'{bias_mv:.1f}mV: {slope:.2f}±{slope_err:.2f}, χ²/ndf={chi2_ndf:.2f}'
                             ax2.plot(powers_valid, rates_valid, 'o', 
-                                    label=label_combined, color=plot_color,
-                                    markersize=8, alpha=0.8)
+                                    label=label_combined, color=plot_color, alpha=0.9)
                             
                             print(f"  Bias {bias_mv:.1f} mV linear fit:")
                             print(f"    Rate = ({slope:.3f} ± {slope_err:.3f}) * Power + ({intercept:.1f} ± {intercept_err:.1f})")
@@ -469,50 +555,52 @@ def main():
                             rate_fit_line = slope * power_fit_line + intercept
                         
                         ax2.plot(power_fit_line, rate_fit_line, '--', color=plot_color, 
-                                alpha=0.6, linewidth=2)
+                                alpha=0.7)
                         
                     except Exception as e:
                         print(f"  Fit failed for {bias_mv:.1f} mV: {e}")
                         # Plot data only if fit fails
                         ax2.plot(powers_valid, rates_valid, 'o', 
-                                label=f'{bias_mv:.1f} mV', color=plot_color,
-                                markersize=8, alpha=0.8)
+                                label=f'{bias_mv:.1f} mV', color=plot_color, alpha=0.9)
             else:
                 # Plot data points without fit
                 ax2.plot(powers_valid, rates_valid, 'o', 
-                        label=f'{bias_mv:.1f} mV', color=plot_color,
-                        markersize=8, alpha=0.8)
+                        label=f'{bias_mv:.1f} mV', color=plot_color, alpha=0.9)
             
             color_idx += 1
     
     # Add dark count reference lines if available (use latest dark file)
+    # Filter out very small dark count values (< 1) to avoid extending y-axis range
     if latest_dark_file:
         dark_bias, dark_rates = read_counter_file(latest_dark_file)
-        dark_dict = {bias * 1000: rate for bias, rate in zip(dark_bias, dark_rates)}
+        dark_dict = {bias * 1000: rate for bias, rate in zip(dark_bias, dark_rates) if rate >= 1.0}
         
         # Show dark count line for each selected bias voltage (no legend labels)
         for target in target_biases_mv:
             for bias_mv, dark_rate in dark_dict.items():
                 if abs(bias_mv - target) <= args.tolerance:
-                    ax2.axhline(y=dark_rate, color='gray', linestyle=':', linewidth=1.5, 
+                    ax2.axhline(y=dark_rate, color='dimgray', linestyle=':', 
                                alpha=0.5)
                     break
     
-    ax2.set_xlabel('Optical Power (nW)', fontsize=14)
-    ax2.set_ylabel('Count Rate (counts/s)', fontsize=14)
-    ax2.set_title(f'{measurement_name} (Raw data)', fontsize=15)
+    # Configure second plot - ATLAS style
+    ax2.set_xlabel('Optical Power (nW)')
+    ax2.set_ylabel('Count Rate (counts/s)')
+    ax2.text(0.05, 0.95, f'{measurement_name} (Raw data)', 
+             transform=ax2.transAxes, fontsize=18, fontweight='bold',
+             verticalalignment='top')
     
     # Dynamic legend: more columns for more entries, smaller font, tighter spacing
     num_entries = len([h for h in ax2.get_legend_handles_labels()[0]])
     if num_entries > 10:
         legend_ncol = 4
-        legend_fontsize = 7
+        legend_fontsize = 11
     elif num_entries > 6:
         legend_ncol = 3
-        legend_fontsize = 8
+        legend_fontsize = 12
     else:
         legend_ncol = 2
-        legend_fontsize = 9
+        legend_fontsize = 13
     
     # Position legend based on plot type
     if args.loglog.lower() == 'true':
@@ -523,9 +611,11 @@ def main():
         legend_bbox = (0, 1)
     
     ax2.legend(fontsize=legend_fontsize, loc=legend_loc, ncol=legend_ncol, 
-              framealpha=0.9, bbox_to_anchor=legend_bbox,
+              frameon=True, bbox_to_anchor=legend_bbox,
               columnspacing=0.8, handlelength=1.5, handletextpad=0.5)
-    ax2.grid(True, alpha=0.3)
+    
+    # Enable minor ticks
+    ax2.minorticks_on()
     
     # Apply log-log scale if requested
     if args.loglog.lower() == 'true':
@@ -533,6 +623,14 @@ def main():
         ax2.set_yscale('log')
     else:
         ax2.set_ylim(bottom=0)
+    
+    # Apply custom y-axis scale if specified
+    if args.yaxis_scale.lower() != 'auto':
+        try:
+            ymin, ymax = map(float, args.yaxis_scale.split(','))
+            ax2.set_ylim(ymin, ymax)
+        except:
+            print(f"Warning: Invalid y-axis scale '{args.yaxis_scale}', using auto")
     
     plt.tight_layout()
     

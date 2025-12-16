@@ -137,7 +137,7 @@ def print_config_summary(config):
         print(f"Measurement [{enabled_status}]: {name}")
         print(f"  Folder: {settings['folder']}")
         print(f"  Selected Bias Voltages: {settings['bias_voltages']} mV")
-        print(f"  Remove Lowest Points: {settings['remove_lowest_points']}")
+        print(f"  Selected Powers: {settings.get('powers', 'all')} nW")
         print(f"  Dark Subtract Mode: {settings.get('dark_subtract_mode', 'closest')}")
         print(f"  Linear Fit: {settings.get('linear_fit', 'false')}")
         print(f"  Fit Range: {settings.get('fit_range', 'all')}")
@@ -196,7 +196,7 @@ def generate_config_template(measurement_name, measurement_path):
         "enabled": "true",
         "folder": measurement_name + "/2-7/6K",
         "bias_voltages": available_bias[:5] if available_bias else [66, 68, 70, 72, 74],  # Use first 5 or defaults
-        "remove_lowest_points": 0,  # Conservative default
+        "powers": "all",  # Default to all powers
         "dark_subtract_mode": "closest",  # Default to closest time
         "linear_fit": "false",  # Default to disabled
         "fit_range": "all",  # Default to all data

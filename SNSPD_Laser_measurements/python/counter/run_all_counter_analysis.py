@@ -13,7 +13,7 @@ def load_config(config_path='counter_analysis_config.json'):
     with open(config_path, 'r') as f:
         return json.load(f)
 
-def run_analysis(script_name, data_folder, measurement_name, bias_voltages, remove_lowest=0, dark_subtract_mode='closest', linear_fit='false', fit_range='all', fit_line_range='all', loglog='false'):
+def run_analysis(script_name, data_folder, measurement_name, bias_voltages, powers='all', dark_subtract_mode='closest', linear_fit='false', fit_range='all', fit_line_range='all', loglog='false', yaxis_scale='auto'):
     """Run a counter analysis script and return the result."""
     # Convert bias_voltages to string format
     if isinstance(bias_voltages, str):
@@ -23,12 +23,19 @@ def run_analysis(script_name, data_folder, measurement_name, bias_voltages, remo
     else:
         bias_str = str(bias_voltages)
     
+    # Convert powers to string format
+    if isinstance(powers, str):
+        powers_str = powers
+    elif isinstance(powers, list):
+        powers_str = ','.join(map(str, powers))
+    else:
+        powers_str = str(powers)
+    
     cmd = [
         sys.executable, script_name, data_folder,
-        '--bias', bias_str
+        '--bias', bias_str,
+        '--powers', powers_str
     ]
-    if remove_lowest > 0:
-        cmd.extend(['--remove-lowest', str(remove_lowest)])
     if dark_subtract_mode:
         cmd.extend(['--dark-subtract-mode', str(dark_subtract_mode)])
     if linear_fit:
@@ -39,6 +46,8 @@ def run_analysis(script_name, data_folder, measurement_name, bias_voltages, remo
         cmd.extend(['--fit-line-range', str(fit_line_range)])
     if loglog:
         cmd.extend(['--loglog', str(loglog)])
+    if yaxis_scale:
+        cmd.extend(['--yaxis-scale', str(yaxis_scale)])
     if measurement_name:
         cmd.extend(['--measurement-name', str(measurement_name)])
     
@@ -78,12 +87,13 @@ def main():
             'folder': base_path / settings['folder'],
             'measurement_name': name,
             'bias': settings['bias_voltages'],
-            'remove_lowest': settings['remove_lowest_points'],
+            'powers': settings.get('powers', 'all'),
             'dark_subtract_mode': settings.get('dark_subtract_mode', 'closest'),
             'linear_fit': settings.get('linear_fit', 'false'),
             'fit_range': settings.get('fit_range', 'all'),
             'fit_line_range': settings.get('fit_line_range', 'all'),
-            'loglog': settings.get('loglog', 'false')
+            'loglog': settings.get('loglog', 'false'),
+            'yaxis_scale': settings.get('yaxis_scale', 'auto')
         })
     
     # Print configuration summary
@@ -94,12 +104,13 @@ def main():
         enabled_status = "✓" if settings.get('enabled', 'true').lower() == 'true' else "✗"
         print(f"\n[{enabled_status}] {name}:")
         print(f"  Bias voltages: {settings['bias_voltages']} mV")
-        print(f"  Remove lowest points: {settings['remove_lowest_points']}")
+        print(f"  Powers: {settings.get('powers', 'all')} nW")
         print(f"  Dark subtract mode: {settings.get('dark_subtract_mode', 'closest')}")
         print(f"  Linear fit: {settings.get('linear_fit', 'false')}")
         print(f"  Fit range: {settings.get('fit_range', 'all')}")
         print(f"  Fit line range: {settings.get('fit_line_range', 'all')}")
         print(f"  Log-log scale: {settings.get('loglog', 'false')}")
+        print(f"  Y-axis scale: {settings.get('yaxis_scale', 'auto')}")
         print(f"  Description: {settings['description']}")
     
     print("="*80)
@@ -125,12 +136,13 @@ def main():
             str(analysis['folder']),
             analysis['measurement_name'],
             analysis['bias'],
-            analysis['remove_lowest'],
+            analysis['powers'],
             analysis['dark_subtract_mode'],
             analysis['linear_fit'],
             analysis['fit_range'],
             analysis['fit_line_range'],
-            analysis['loglog']
+            analysis['loglog'],
+            analysis['yaxis_scale']
         )
         
         if success:

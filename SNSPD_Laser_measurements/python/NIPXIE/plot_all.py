@@ -92,11 +92,6 @@ def main():
         print("GENERATING RATES VS BIAS VOLTAGE PLOTS")
         print("="*60)
         
-        # Individual power plots
-        print("\n--- Individual Power Levels ---")
-        for power, power_data in sorted(power_groups.items()):
-            plot_single_power_vs_bias(power, power_data, output_dir)
-        
         # Combined multi-power plot
         if len(power_groups) > 1:
             print("\n--- Combined Multi-Power Comparison ---")
@@ -106,11 +101,6 @@ def main():
         print("\n" + "="*60)
         print("GENERATING RATES VS POWER PLOTS")
         print("="*60)
-        
-        # Individual bias plots
-        print("\n--- Individual Bias Voltages ---")
-        for bias, bias_data in sorted(bias_groups.items()):
-            plot_single_bias_vs_power(bias, bias_data, output_dir, args.log_scale)
         
         # Combined multi-bias plot
         if len(bias_groups) > 1:

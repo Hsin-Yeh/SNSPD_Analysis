@@ -20,8 +20,8 @@ parser.add_argument('--input_dir', '-i', nargs='+', default=['./plots/test'],
                    help='Directory or directories containing analysis.json files (supports multiple)')
 parser.add_argument('--output_dir', '-d', default='.', help='Output directory for plots')
 parser.add_argument('--pattern', '-p', default='*_analysis.json', help='File pattern to match')
-parser.add_argument('--plot_individual', action='store_true', help='Plot individual bias voltages')
-parser.add_argument('--plot_combined', action='store_true', help='Plot combined multi-bias comparison')
+parser.add_argument('--plot_individual', action='store_true', default=False, help='Plot individual bias voltages')
+parser.add_argument('--plot_combined', action='store_true', default=True, help='Plot combined multi-bias comparison')
 parser.add_argument('--log_scale', action='store_true', help='Use log scale for y-axis')
 parser.add_argument('--recursive', '-r', action='store_true', default=True, help='Search recursively in subdirectories')
 
@@ -52,8 +52,8 @@ def plot_single_bias_vs_power(bias, bias_data, output_dir, log_scale=False):
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
     
     # Plot count rate
-    ax1.errorbar(powers, count_rates, yerr=count_rate_errors, marker='o', 
-                color='tab:orange', linewidth=2, capsize=4, capthick=1.5, label='Count Rate')
+    ax1.plot(powers, count_rates, marker='o', 
+                color='tab:blue', linewidth=2, label='Count Rate')
     ax1.set_xlabel('Power (nW)', fontsize=12)
     ax1.set_ylabel('Count Rate (Hz)', fontsize=12)
     ax1.set_title(f'Count Rate vs Power ({bias_label})', fontsize=14, fontweight='bold')
@@ -88,8 +88,8 @@ def plot_single_bias_vs_power(bias, bias_data, output_dir, log_scale=False):
     ax3.grid(True, alpha=0.3)
     
     # Plot efficiency
-    ax4.errorbar(powers, efficiencies, yerr=efficiency_errors, marker='D', 
-                color='tab:purple', linewidth=2, capsize=4, capthick=1.5, label='Efficiency')
+    ax4.plot(powers, efficiencies, marker='D', 
+                color='tab:purple', linewidth=2, label='Efficiency')
     ax4.set_xlabel('Power (nW)', fontsize=12)
     ax4.set_ylabel('Efficiency', fontsize=12)
     ax4.set_title(f'Efficiency vs Power ({bias_label})', fontsize=14, fontweight='bold')
@@ -147,31 +147,19 @@ def plot_multi_bias_vs_power(bias_groups, output_dir, log_scale=False):
         
         for power in sorted(power_dict.keys()):
             items = power_dict[power]
-            if len(items) > 1:
-                print(f"  Warning: {len(items)} measurements at {bias}mV, {power}nW - averaging")
+            
+            # Use the first (and should be only) item after deduplication in plot_utils
+            d = items[0]
             
             powers.append(power)
-            count_rates.append(np.mean([d['count_rate'] for d in items]))
-            signal_rates.append(np.mean([d['signal_rate'] for d in items]))
-            dark_count_rates.append(np.mean([d['dark_count_rate'] for d in items]))
-            efficiencies.append(np.mean([d['efficiency'] for d in items]))
-            
-            # Proper error propagation when averaging:
-            # For count rates: standard error of the mean
-            # If multiple measurements, use std/sqrt(n), otherwise use the Poisson error
-            if len(items) > 1:
-                count_rate_errors.append(np.std([d['count_rate'] for d in items], ddof=1) / np.sqrt(len(items)))
-                signal_rate_errors.append(np.std([d['signal_rate'] for d in items], ddof=1) / np.sqrt(len(items)))
-                dark_count_rate_errors.append(np.std([d['dark_count_rate'] for d in items], ddof=1) / np.sqrt(len(items)))
-                # For efficiency with multiple measurements, propagate binomial errors
-                eff_errs = [d['efficiency_error'] for d in items]
-                efficiency_errors.append(np.sqrt(np.sum(np.array(eff_errs)**2)) / len(items))
-            else:
-                # Single measurement: use the calculated errors from analysis
-                count_rate_errors.append(items[0]['count_rate_error'])
-                signal_rate_errors.append(items[0]['signal_rate_error'])
-                dark_count_rate_errors.append(items[0]['dark_count_rate_error'])
-                efficiency_errors.append(items[0]['efficiency_error'])
+            count_rates.append(d['count_rate'])
+            signal_rates.append(d['signal_rate'])
+            dark_count_rates.append(d['dark_count_rate'])
+            efficiencies.append(d['efficiency'])
+            count_rate_errors.append(d['count_rate_error'])
+            signal_rate_errors.append(d['signal_rate_error'])
+            dark_count_rate_errors.append(d['dark_count_rate_error'])
+            efficiency_errors.append(d['efficiency_error'])
         
         if not powers:
             continue
@@ -180,14 +168,14 @@ def plot_multi_bias_vs_power(bias_groups, output_dir, log_scale=False):
         label = f'{bias} mV'
         
         # Plot each rate type
-        ax1.errorbar(powers, count_rates, yerr=count_rate_errors, marker='o', 
-                    color=color, label=label, linewidth=2, capsize=3)
+        ax1.plot(powers, count_rates, marker='o', 
+                    color=color, label=label, linewidth=2)
         ax2.errorbar(powers, signal_rates, yerr=signal_rate_errors, marker='s', 
                     color=color, label=label, linewidth=2, capsize=3)
         ax3.errorbar(powers, dark_count_rates, yerr=dark_count_rate_errors, marker='^', 
                     color=color, label=label, linewidth=2, capsize=3)
-        ax4.errorbar(powers, efficiencies, yerr=efficiency_errors, marker='D', 
-                    color=color, label=label, linewidth=2, capsize=3)
+        ax4.plot(powers, efficiencies, marker='D', 
+                    color=color, label=label, linewidth=2)
     
     # Configure subplots
     for ax, ylabel, title in [

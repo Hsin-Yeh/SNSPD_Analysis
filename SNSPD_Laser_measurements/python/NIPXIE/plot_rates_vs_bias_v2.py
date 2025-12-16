@@ -20,8 +20,8 @@ parser.add_argument('--input_dir', '-i', nargs='+', default=['./plots/test'],
                    help='Directory or directories containing analysis.json files (supports multiple)')
 parser.add_argument('--output_dir', '-d', default='.', help='Output directory for plots')
 parser.add_argument('--pattern', '-p', default='*_analysis.json', help='File pattern to match')
-parser.add_argument('--plot_individual', action='store_true', help='Plot individual power levels')
-parser.add_argument('--plot_combined', action='store_true', help='Plot combined multi-power comparison')
+parser.add_argument('--plot_individual', action='store_true', default=False, help='Plot individual power levels')
+parser.add_argument('--plot_combined', action='store_true', default=True, help='Plot combined multi-power comparison')
 parser.add_argument('--recursive', '-r', action='store_true', default=True, help='Search recursively in subdirectories')
 
 def plot_single_power_vs_bias(power, power_data, output_dir):
@@ -59,8 +59,8 @@ def plot_single_power_vs_bias(power, power_data, output_dir):
     ax1_right = ax1.twinx()
     color_count = 'tab:orange'
     color_dark = 'tab:red'
-    ax1_right.errorbar(bias_voltages, count_rates, yerr=count_rate_errors, marker='o', color=color_count, 
-                       label='Count Rate', linewidth=2, capsize=4, capthick=1.5)
+    ax1_right.plot(bias_voltages, count_rates, marker='o', color=color_count, 
+                       label='Count Rate', linewidth=2)
     ax1_right.errorbar(bias_voltages, dark_count_rates, yerr=dark_count_rate_errors, marker='^', color=color_dark, 
                        label='Dark Count Rate', linewidth=2, capsize=4, capthick=1.5)
     ax1_right.set_ylabel('Count Rate / Dark Count Rate (Hz)', fontsize=12)
@@ -72,8 +72,8 @@ def plot_single_power_vs_bias(power, power_data, output_dir):
     ax1.set_title(f'Count Rates vs Bias Voltage ({power_label})', fontsize=14, fontweight='bold')
     
     # Plot efficiency
-    ax2.errorbar(bias_voltages, efficiencies, yerr=efficiency_errors, marker='D', color='red', 
-                 linewidth=2, label='Efficiency', capsize=4, capthick=1.5)
+    ax2.plot(bias_voltages, efficiencies, marker='D', color='red', 
+                 linewidth=2, label='Efficiency')
     ax2.set_xlabel('Bias Voltage (mV)', fontsize=12)
     ax2.set_ylabel('Efficiency', fontsize=12)
     ax2.set_title(f'Efficiency vs Bias Voltage ({power_label})', fontsize=14, fontweight='bold')
@@ -132,14 +132,14 @@ def plot_multi_power_vs_bias(power_groups, output_dir):
         label = f'{power} nW' if isinstance(power, int) else str(power)
         
         # Plot each rate type
-        ax1.errorbar(bias_voltages, count_rates, yerr=count_rate_errors, marker='o', 
-                    color=color, label=label, linewidth=2, capsize=3)
+        ax1.plot(bias_voltages, count_rates, marker='o', 
+                    color=color, label=label, linewidth=2)
         ax2.errorbar(bias_voltages, signal_rates, yerr=signal_rate_errors, marker='s', 
                     color=color, label=label, linewidth=2, capsize=3)
         ax3.errorbar(bias_voltages, dark_count_rates, yerr=dark_count_rate_errors, marker='^', 
                     color=color, label=label, linewidth=2, capsize=3)
-        ax4.errorbar(bias_voltages, efficiencies, yerr=efficiency_errors, marker='D', 
-                    color=color, label=label, linewidth=2, capsize=3)
+        ax4.plot(bias_voltages, efficiencies, marker='D', 
+                    color=color, label=label, linewidth=2)
     
     # Configure subplots
     for ax, ylabel, title in [
