@@ -474,62 +474,6 @@ def main():
     if not args.no_plots:
         print(f"Plots saved to: {args.output_dir}")
     print(f"{'='*70}\n")
-            print(f"    Signal Rate: {summary.get('signal_rate', 0):.2f} Hz")
-            print(f"    Dark Count Rate: {summary.get('dark_count_rate', 0):.2f} Hz")
-            print(f"    Efficiency: {summary.get('efficiency', 0):.6f}")
-        
-        # Create base output filename
-        base_name = Path(filename).stem
-        
-        # Plot summary comparison
-        if summary:
-            try:
-                fig = plot_summary_comparison(summary, metadata, filename)
-                output_path = os.path.join(args.output_dir, f"summary_{base_name}.png")
-                fig.savefig(output_path, dpi=150)
-                plt.close(fig)
-                print(f"\n  Saved: summary_{base_name}.png")
-            except Exception as e:
-                print(f"  Warning: Could not create summary plot - {e}")
-        
-        # Plot individual variables
-        print(f"\n  Plotting individual variables:")
-        for var in variables_to_plot:
-            try:
-                # Plot histogram
-                fig = plot_variable_histogram(events, var, filename, metadata, bins=args.bins)
-                if fig:
-                    output_path = os.path.join(args.output_dir, f"{var}_histogram_{base_name}.png")
-                    fig.savefig(output_path, dpi=150)
-                    plt.close(fig)
-                
-                # Plot vs event number
-                fig = plot_variable_vs_event(events, var, filename, metadata)
-                if fig:
-                    output_path = os.path.join(args.output_dir, f"{var}_vs_event_{base_name}.png")
-                    fig.savefig(output_path, dpi=150)
-                    plt.close(fig)
-                    
-            except Exception as e:
-                print(f"  Warning: Could not plot '{var}' - {e}")
-        
-        # Plot 2D correlations
-        print(f"\n  Plotting 2D correlations:")
-        for var_x, var_y in correlations_to_plot:
-            try:
-                fig = plot_2d_correlation(events, var_x, var_y, filename, metadata, bins=args.bins)
-                if fig:
-                    output_path = os.path.join(args.output_dir, f"correlation_{var_x}_vs_{var_y}_{base_name}.png")
-                    fig.savefig(output_path, dpi=150)
-                    plt.close(fig)
-            except Exception as e:
-                print(f"  Warning: Could not create correlation plot ({var_x} vs {var_y}) - {e}")
-        
-        print(f"\n  Completed processing: {filename}")
-    
-    print(f"\n{'='*70}")
-    print(f"All plots saved to: {args.output_dir}")
-    print(f"{'='*70}\n")
 
 if __name__ == "__main__":
     main()

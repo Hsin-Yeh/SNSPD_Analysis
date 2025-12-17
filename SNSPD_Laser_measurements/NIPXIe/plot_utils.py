@@ -162,7 +162,8 @@ def read_analysis_files(input_dir, pattern='*_analysis.json', recursive=True):
             with open(filepath, 'r') as f:
                 analysis = json.load(f)
             
-            summary = analysis.get('summary_statistics', {})
+            # Handle both Stage 1 (*_analysis.json) and Stage 2 (statistics_*.json) formats
+            summary = analysis.get('summary_statistics', analysis.get('summary_from_stage1', {}))
             
             # Extract rates from summary
             count_rate = summary.get('count_rate', 0)
