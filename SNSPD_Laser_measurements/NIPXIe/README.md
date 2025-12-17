@@ -1,53 +1,29 @@
-# NIPXIe - SNSPD Analysis Package
+# NIPXIe - TDMS Waveform Analysis
 
-A comprehensive Python package for analyzing Superconducting Nanowire Single-Photon Detector (SNSPD) data from NI PXIe systems. Process TDMS files and generate publication-quality plots.
+Event-by-event analysis of single-photon detection waveforms from NI PXIe digitizer TDMS files.
 
 ## Features
 
-- **TDMS File Analysis**: Process raw TDMS files to extract pulse characteristics
-- **Pulse Characterization**: Calculate pulse amplitude, rise/fall times, trigger times, and more
-- **Statistical Analysis**: Compute signal rates, dark count rates, detection efficiency with proper error propagation
-- **Flexible Plotting**: Generate various plots for analyzing detector performance
-- **Event-by-Event Analysis**: Track individual pulse properties across measurements
+- **Event Detection**: Automatic pulse detection with configurable thresholds
+- **Pulse Characterization**: Rise time, fall time, amplitude, FWHM analysis
+- **Timing Analysis**: Jitter measurement, trigger delay characterization
+- **Efficiency Calculation**: Detection efficiency vs bias voltage/optical power
+- **Dark Count Analysis**: Background count rate characterization
+- **Single Event Extraction**: Save individual events for detailed inspection
+- **HEP-Style Plotting**: Professional publication-quality plots
 
 ## Installation
 
-### Requirements
-
-- Python 3.7 or higher
-- Required packages (see `requirements.txt`):
-  - numpy
-  - pandas
-  - matplotlib
-  - scipy
-  - nptdms
-
-### Setup
-
-1. Install dependencies:
+Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-2. The package is ready to use directly from this directory.
+## Main Scripts
 
-## Usage
+### SelfTrigger.py - Core Analysis
 
-### 1. Analyzing TDMS Files
-
-The main analysis script is `SelfTrigger.py`. It processes TDMS files and generates JSON output with pulse statistics.
-
-#### Basic Usage
-
-```bash
-python3 SelfTrigger.py <path_to_tdms_file_or_directory>
-```
-
-#### Command-Line Options
-
-- `--trigger_method [spline|simple]`: Choose trigger time calculation method
-  - `spline` (default): Accurate method using cubic spline interpolation (slower)
-  - `simple`: Fast approximation using threshold crossing (10-50x faster)
+Process TDMS files to extract pulse characteristics.
 
 - `--display_report`, `-p`: Display matplotlib plots for each pulse (useful for debugging)
 
@@ -71,53 +47,106 @@ python3 SelfTrigger.py /path/to/data.tdms
 python3 SelfTrigger.py /path/to/data.tdms --trigger_method simple
 
 # Analyze all TDMS files in a directory
-python3 SelfTrigger.py /path/to/data_directory/
+
+**Usage:**
+```bash
+# Analyze single file
+python SelfTrigger.py /path/to/file.tdms
+
+# Analyze directory recursively
+python SelfTrigger.py /path/to/directory --recursive
+
+# Extract single event without full analysis
+python SelfTrigger.py /path/to/file.tdms --save_single_event 5
 
 # Show plots for debugging
-python3 SelfTrigger.py /path/to/data.tdms --display_report
+python SelfTrigger.py /path/to/file.tdms --display_report
 
-# Process only first 100 events
-python3 SelfTrigger.py /path/to/data.tdms --subset 100
+# Process subset of events
+python SelfTrigger.py /path/to/file.tdms --subset 100
 
 # Custom output directory with debug mode
-python3 SelfTrigger.py /path/to/data.tdms -d ./output -b
+python SelfTrigger.py /path/to/file.tdms -d ./output -b
 ```
 
-#### Output Format
+**Output Files:**
+- `*_analysis.json`: Event-by-event data and summary statistics
+- `*_meta.json`: Metadata and analysis parameters
+- `*_event<N>.json`: Single event waveform (with --save_single_event)
 
-The analysis generates JSON files in an output directory (auto-detected as `SNSPD_analyzed_json` parallel to the input data directory). Each JSON file contains:
+### SelfTrigger_plot.py - Diagnostic Plots
 
+Generate diagnostic plots for pulse characteristics.
+
+**Usage:**
+```bash
+python SelfTrigger_plot.py /path/to/analysis.json
+```
+
+**Output:** 28 plots including pulse amplitude, rise/fall time distributions, timing jitter, and correlation plots.
+
+### plot_rates_vs_power.py - Power Dependence
+
+Plot detection rates vs optical power for multiple bias voltages.
+
+**Usage:**
+```bash
+python plot_rates_vs_power.py --input_dir /path/to/analyzed_json --output_dir ./plots
+```
+
+### plot_rates_vs_bias_v2.py - Bias Dependence
+
+Plot detection rates vs bias voltage for multiple power levels.
+
+**Usage:**
+```bash
+python plot_rates_vs_bias_v2.py --input_dir /path/to/analyzed_json --output_dir ./plots
+```
+
+### plot_all.py - Unified Plotting
+
+Generate all standard plots with one command.
+
+**Usage:**
+```bash
+python plot_all.py --input_dir /path/to/analyzed_json --output_dir ./plots --recursive
+```
+
+### plot_multiple_events.py - Event Visualization
+
+Visualize multiple single-event waveforms together.
+
+**Usage:**
+```bash
+python plot_multiple_events.py /path/to/directory/with/event_jsons
+```
+
+## Analysis Workflow
+
+1. **Collect Data**: Acquire TDMS files from NI PXIe digitizer
+2. **Run Analysis**: `python SelfTrigger.py /path/to/rawdata --recursive`
+3. **Generate Plots**: `python plot_all.py --input_dir /path/to/analyzed_json --output_dir ./plots`
+
+## Output JSON Structure
+
+### Analysis JSON (`*_analysis.json`)
 ```json
 {
   "metadata": {
-    "tdms_file": "...",
     "bias_current_uA": 700,
     "bias_voltage_mV": 145,
     "power_nW": 10000,
-    "angle_degrees": 0,
     "wavelength_nm": 515,
-    "timestamp": "20250611_025719",
     "trigger_method": "spline"
   },
   "summary_statistics": {
-    "total_time": 10.0,
     "total_events": 5000,
     "signal_rate": 450.5,
     "signal_rate_error": 0.67,
     "dark_count_rate": 49.5,
-    "dark_count_rate_error": 0.22,
     "efficiency": 0.0451,
-    "efficiency_error": 0.0003,
-    "ptp_mean": 0.0123,
-    "ptp_std": 0.0015,
-    "rise_amplitude_mean": 0.0089,
-    "rise_amplitude_std": 0.0011,
-    "rise_time_mean": 2.34e-9,
-    "rise_time_std": 0.15e-9,
-    "fall_time_mean": 3.56e-9,
-    "fall_time_std": 0.22e-9
+    "efficiency_error": 0.0003
   },
-  "total_events": 5000,
   "event_by_event_data": [
     {
       "event_number": 0,

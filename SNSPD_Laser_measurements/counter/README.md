@@ -1,25 +1,43 @@
-# Counter Data Analysis Scripts
+# Counter - Hardware Counter Analysis
 
-Analysis tools for SNSPD counter sweep measurements.
+Analysis tools for photon counting measurements using hardware counters (SR400, NI counter/timer, etc.).
+
+## Features
+
+- **Bias voltage scans**: Count rate vs bias for plateau characterization
+- **Power dependence**: Detection efficiency vs optical power
+- **Time-series analysis**: Monitor count rates over time
+- **Dark count characterization**: Background rate analysis
+- **Statistical analysis**: Proper error propagation with time binning
+- **HEP-style plotting**: Publication-quality figures
 
 ## Quick Start
 
-Run all analyses at once:
+Run all analyses:
 ```bash
 python run_all_counter_analysis.py
 ```
 
-This will analyze all measurement folders and save plots to:
-- `output/Counter_sweep_power_3/`
-- `output/test/`
-- `output/1MHz/`
-- `output/100kHz/`
+## Main Scripts
 
-## Individual Analysis
+### plot_counter_generic.py - Unified Plotter
 
-For a single measurement folder:
+**Usage:**
 ```bash
-python plot_counter_generic.py /path/to/data/folder --bias "66,68,70,72,74"
+# Basic usage
+python plot_counter_generic.py /path/to/data_folder
+
+# Specific bias voltages
+python plot_counter_generic.py /path/to/data_folder --bias 68,70,72
+
+# Specific powers (or "all")
+python plot_counter_generic.py /path/to/data_folder --powers 369,446,534
+
+# Custom y-axis scale
+python plot_counter_generic.py /path/to/data_folder --yaxis-scale 0,10000
+
+# Remove lowest power points
+python plot_counter_generic.py /path/to/data_folder --remove-lowest 3
 ```
 
 ### Options:
