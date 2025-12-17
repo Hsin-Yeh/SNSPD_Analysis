@@ -1,7 +1,20 @@
 #!/usr/bin/env python3
 """
-Main plotting script for SNSPD analysis - unified interface
-Can generate all plots with a single command
+Stage 3: Comparison plotting across multiple measurements
+
+Reads statistical analysis results from analyze_events.py (Stage 2) and generates
+comparison plots for rates vs bias, rates vs power, and pulse characteristics.
+
+Workflow:
+  Stage 1: SelfTrigger.py     (TDMS → event JSON)
+  Stage 2: analyze_events.py  (event JSON → statistics JSON)
+  Stage 3: plot_all.py        (statistics JSON → comparison plots)  ← THIS SCRIPT
+
+The script expects either:
+  - *_analysis.json files from Stage 1 (contains summary_statistics)
+  - statistics_*.json files from Stage 2 (contains fitted statistics)
+
+For best results, use statistics_*.json files which include error estimates.
 """
 
 import argparse
@@ -27,11 +40,29 @@ try:
 except ImportError:
     HAS_PULSE_PLOTS = False
 
-parser = argparse.ArgumentParser(description='Generate all SNSPD rate plots')
+parser = argparse.ArgumentParser(
+    description='Stage 3: Generate comparison plots from statistical analysis',
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    epilog="""
+Examples:
+  # Use Stage 1 analysis files (original)
+  python plot_all.py -i plots/test/ -p '*_analysis.json'
+  
+  # Use Stage 2 statistics files (recommended - includes errors)
+  python plot_all.py -i output/ -p 'statistics_*.json'
+  
+  # Multiple directories with custom output location
+  python plot_all.py -i dir1/ dir2/ dir3/ -d output/comparison_plots/
+  
+  # Only generate vs_bias plots
+  python plot_all.py -i output/ -m vs_bias
+"""
+)
 parser.add_argument('--input_dir', '-i', nargs='+', default=['./plots/test'], 
-                   help='Directory or directories containing analysis.json files (supports multiple)')
+                   help='Directory or directories containing analysis.json or statistics_*.json files')
 parser.add_argument('--output_dir', '-d', default='.', help='Output directory for plots')
-parser.add_argument('--pattern', '-p', default='*_analysis.json', help='File pattern to match')
+parser.add_argument('--pattern', '-p', default='*_analysis.json', 
+                   help='File pattern to match (e.g., *_analysis.json or statistics_*.json)')
 parser.add_argument('--mode', '-m', choices=['all', 'vs_bias', 'vs_power', 'pulse'], default='all',
                    help='Plot mode: all, vs_bias, vs_power, or pulse')
 parser.add_argument('--log_scale', action='store_true', help='Use log scale for power plots')
@@ -40,9 +71,9 @@ parser.add_argument('--recursive', '-r', action='store_true', default=True, help
 def main():
     args = parser.parse_args()
     
-    print("="*60)
-    print("SNSPD Analysis Plotting Tool")
-    print("="*60)
+    print("="*70)
+    print("Stage 3: SNSPD Comparison Plotting")
+    print("="*70)
     input_dirs = args.input_dir if isinstance(args.input_dir, list) else [args.input_dir]
     print(f"\nReading analysis files from: {', '.join(input_dirs)}")
     print(f"File pattern: {args.pattern}")
@@ -50,7 +81,7 @@ def main():
     print(f"Mode: {args.mode}")
     print(f"Recursive search: {args.recursive}")
     
-    # Read data
+    # Read data (works with both *_analysis.json and statistics_*.json)
     data = read_analysis_files(args.input_dir, args.pattern, args.recursive)
     
     if not data:

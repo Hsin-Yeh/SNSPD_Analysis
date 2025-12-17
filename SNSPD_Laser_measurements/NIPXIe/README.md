@@ -2,13 +2,68 @@
 
 Event-by-event analysis of single-photon detection waveforms from NI PXIe digitizer TDMS files.
 
+## Analysis Workflow
+
+The analysis is organized into three sequential stages:
+
+```
+Stage 1: SelfTrigger.py       TDMS files → Event-by-event JSON
+         ↓
+Stage 2: analyze_events.py    Event JSON → Statistical analysis JSON
+         ↓  
+Stage 3: plot_all.py          Statistics JSON → Comparison plots
+```
+
+### Stage 1: Event Extraction (SelfTrigger.py)
+
+Converts raw TDMS waveform data into condensed event-by-event physics variables:
+- Extracts pulse characteristics (amplitude, rise/fall time, FWHM)
+- Measures timing information (trigger delay, pulse interval)
+- Calculates rates and efficiency
+- **Output**: `*_analysis.json` with event data and summary statistics
+
+### Stage 2: Statistical Analysis (analyze_events.py)
+
+Performs statistical analysis on event-by-event data:
+- Computes mean, standard deviation, standard error for all variables
+- Fits Gaussian distributions to timing variables (e.g., trigger_check)
+- Calculates uncertainties and error propagation
+- **Output**: `statistics_*.json` with fitted parameters and errors
+- **Optional**: Generate diagnostic plots with `--no-plots` to skip
+
+### Stage 3: Comparison Plotting (plot_all.py)
+
+Creates comparison plots across multiple measurements:
+- Detection rate vs bias voltage (multiple powers)
+- Detection rate vs optical power (multiple biases)
+- Pulse characteristics vs operating conditions
+- **Uses**: Statistical results from Stage 2 for error bars
+
+## Quick Start
+
+```bash
+# Complete workflow example
+# Stage 1: Extract events from TDMS
+python SelfTrigger.py data.tdms -d output/
+
+# Stage 2: Compute statistics (with plots)
+python analyze_events.py output/*_analysis.json -d output/statistics/
+
+# Stage 2: Compute statistics only (no plots, faster for batch)
+python analyze_events.py output/*_analysis.json -d stats/ --no-plots
+
+# Stage 3: Generate comparison plots
+python plot_all.py -i stats/ -p 'statistics_*.json' -d final_plots/
+```
+
 ## Features
 
 - **Event Detection**: Automatic pulse detection with configurable thresholds
 - **Pulse Characterization**: Rise time, fall time, amplitude, FWHM analysis
-- **Timing Analysis**: Jitter measurement, trigger delay characterization
+- **Timing Analysis**: Jitter measurement, trigger delay characterization with Gaussian fitting
 - **Efficiency Calculation**: Detection efficiency vs bias voltage/optical power
 - **Dark Count Analysis**: Background count rate characterization
+- **Statistical Analysis**: Error propagation, histogram fitting, uncertainty quantification
 - **Single Event Extraction**: Save individual events for detailed inspection
 - **HEP-Style Plotting**: Professional publication-quality plots
 
@@ -19,9 +74,11 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-## Main Scripts
+## Detailed Script Documentation
 
-### SelfTrigger.py - Core Analysis
+### Stage 1: SelfTrigger.py - Event Extraction
+
+Process TDMS files to extract pulse characteristics and convert scope data into physics variables.
 
 Process TDMS files to extract pulse characteristics.
 
@@ -40,13 +97,16 @@ Process TDMS files to extract pulse characteristics.
 #### Examples
 
 ```bash
-# Analyze a single TDMS file with spline method
-python3 SelfTrigger.py /path/to/data.tdms
-
-# Analyze with fast simple method
-python3 SelfTrigger.py /path/to/data.tdms --trigger_method simple
-
-# Analyze all TDMS files in a directory
+**Arguments:**
+- `--display_report`, `-p`: Display matplotlib plots for each pulse (debugging)
+- `--debug_report`, `-b`: Enable debug output messages
+- `--outputDir <path>`, `-d`: Output directory (default: ./Stats)
+- `--report <N>`, `-r`: Report progress every N events (default: 1000)
+- `--subset <N>`, `-s`: Process only first N events (default: -1 for all)
+- `--checkSingleEvent <N>`, `-c`: Analyze only a specific event number
+- `--save_single_event <N>`: Extract and save a specific event's waveform
+- `--recursive`: Process all TDMS files in directory recursively
+- `--trigger_method`: Method for trigger detection ('spline' or 'simple')
 
 **Usage:**
 ```bash
@@ -74,62 +134,126 @@ python SelfTrigger.py /path/to/file.tdms -d ./output -b
 - `*_meta.json`: Metadata and analysis parameters
 - `*_event<N>.json`: Single event waveform (with --save_single_event)
 
-### SelfTrigger_plot.py - Diagnostic Plots
+---
 
-Generate diagnostic plots for pulse characteristics.
+### Stage 2: analyze_events.py - Statistical Analysis
 
-**Usage:**
-```bash
-python SelfTrigger_plot.py /path/to/analysis.json
-```
+Compute statistics, fit histograms, and quantify uncertainties from event-by-event data.
 
-**Output:** 28 plots including pulse amplitude, rise/fall time distributions, timing jitter, and correlation plots.
-
-### plot_rates_vs_power.py - Power Dependence
-
-Plot detection rates vs optical power for multiple bias voltages.
+**Arguments:**
+- `in_filenames`: One or more `*_analysis.json` files from Stage 1
+- `--output_dir`, `-d`: Output directory for statistics and plots (default: .)
+- `--bins`, `-b`: Number of histogram bins (default: 50, 100 for trigger_check)
+- `--no-plots`: Skip plot generation, only compute statistics (faster for batch)
 
 **Usage:**
 ```bash
-python plot_rates_vs_power.py --input_dir /path/to/analyzed_json --output_dir ./plots
+# Full analysis with diagnostic plots
+python analyze_events.py event0_analysis.json -d output/
+
+# Batch processing without plots (faster)
+python analyze_events.py output/*.json --no-plots -d statistics/
+
+# Multiple files with custom binning
+python analyze_events.py file1.json file2.json -b 100 -d stats/
 ```
 
-### plot_rates_vs_bias_v2.py - Bias Dependence
+**Output Files:**
+- `statistics_*.json`: Comprehensive statistics with errors and fit parameters
+- `*_histogram_*.png`: Histogram plots (if --no-plots not used)
+- `*_vs_event_*.png`: Time series plots
+- `correlation_*.png`: 2D correlation plots
 
-Plot detection rates vs bias voltage for multiple power levels.
+**Statistics Computed:**
+- Mean, median, standard deviation, standard error
+- Min, max, quartiles (Q25, Q75)
+- Gaussian fit parameters for `trigger_check` (μ, σ, amplitude with errors)
+
+---
+
+### Stage 3: plot_all.py - Comparison Plots
+
+Generate comparison plots across multiple measurements using statistical results.
+
+**Arguments:**
+- `--input_dir`, `-i`: Directory/directories with `*_analysis.json` or `statistics_*.json`
+- `--output_dir`, `-d`: Output directory for plots (default: .)
+- `--pattern`, `-p`: File pattern (default: `*_analysis.json`)
+- `--mode`, `-m`: Plot type: `all`, `vs_bias`, `vs_power`, `pulse`
+- `--log_scale`: Use logarithmic scale for power plots
+- `--recursive`, `-r`: Search subdirectories (default: True)
 
 **Usage:**
 ```bash
-python plot_rates_vs_bias_v2.py --input_dir /path/to/analyzed_json --output_dir ./plots
+# Using Stage 1 analysis files (original workflow)
+python plot_all.py -i plots/test/ -p '*_analysis.json'
+
+# Using Stage 2 statistics files (recommended - includes errors)
+python plot_all.py -i statistics/ -p 'statistics_*.json'
+
+# Multiple directories, specific plot type
+python plot_all.py -i dir1/ dir2/ -m vs_bias -d comparison_plots/
+
+# Only pulse characteristic plots
+python plot_all.py -i statistics/ -m pulse
 ```
 
-### plot_all.py - Unified Plotting
+**Output Plots:**
+- Detection rate vs bias voltage (multi-power comparison)
+- Detection rate vs optical power (multi-bias comparison)
+- Pulse characteristics vs operating conditions
+- Efficiency curves with error bars
 
-Generate all standard plots with one command.
+---
 
-**Usage:**
-```bash
-python plot_all.py --input_dir /path/to/analyzed_json --output_dir ./plots --recursive
-```
+### Supporting Scripts
 
-### plot_multiple_events.py - Event Visualization
+#### plot_multiple_events.py - Event Waveform Visualization
 
-Visualize multiple single-event waveforms together.
+Visualize multiple single-event waveforms together, sorted by resistance.
 
 **Usage:**
 ```bash
 python plot_multiple_events.py /path/to/directory/with/event_jsons
 ```
 
-## Analysis Workflow
+#### plot_rates_vs_power.py - Power Dependence
 
-1. **Collect Data**: Acquire TDMS files from NI PXIe digitizer
-2. **Run Analysis**: `python SelfTrigger.py /path/to/rawdata --recursive`
-3. **Generate Plots**: `python plot_all.py --input_dir /path/to/analyzed_json --output_dir ./plots`
+Plot detection rates vs optical power for multiple bias voltages (can use directly, or via plot_all.py).
 
-## Output JSON Structure
+**Usage:**
+```bash
+python plot_rates_vs_power.py --input_dir /path/to/analyzed_json --output_dir ./plots
+```
 
-### Analysis JSON (`*_analysis.json`)
+#### plot_rates_vs_bias_v2.py - Bias Dependence
+
+Plot detection rates vs bias voltage for multiple power levels (can use directly, or via plot_all.py).
+
+**Usage:**
+```bash
+python plot_rates_vs_bias_v2.py --input_dir /path/to/analyzed_json --output_dir ./plots
+```
+
+## Complete Workflow Example
+
+```bash
+# 1. Stage 1: Extract events from TDMS files
+python SelfTrigger.py ~/SNSPD_data/*.tdms -d output/stage1/ --recursive
+
+# 2. Stage 2: Compute statistics without plots (fast batch processing)
+python analyze_events.py output/stage1/*_analysis.json --no-plots -d output/stage2/
+
+# 3. Stage 3: Generate comparison plots
+python plot_all.py -i output/stage2/ -p 'statistics_*.json' -d final_plots/
+
+# Alternative: Stage 2 with diagnostic plots for select files
+python analyze_events.py output/stage1/important_file_analysis.json -d diagnostics/
+```
+
+## Output JSON Structures
+
+### Stage 1 Output: Analysis JSON (`*_analysis.json`)
 ```json
 {
   "metadata": {
@@ -150,10 +274,68 @@ python plot_multiple_events.py /path/to/directory/with/event_jsons
   "event_by_event_data": [
     {
       "event_number": 0,
-      "ptp": 0.0125,
+      "pulse_max": 0.0125,
+      "pulse_min": -0.0032,
       "rise_amplitude": 0.0091,
-      "rise_time": 2.35e-9,
-      "fall_time": 3.58e-9,
+      "rise_time_10_90": 2.35e-9,
+      "fall_time_90_10": 3.58e-9,
+      "trigger_check": 197.3,
+      "pulse_time_interval": 100.15
+    }
+  ]
+}
+```
+
+### Stage 2 Output: Statistics JSON (`statistics_*.json`)
+```json
+{
+  "input_file": "event0_analysis.json",
+  "metadata": { ... },
+  "summary_from_stage1": { ... },
+  "variable_statistics": {
+    "trigger_check": {
+      "variable": "trigger_check",
+      "count": 5000,
+      "mean": 197.234,
+      "std": 0.523,
+      "sem": 0.0074,
+      "median": 197.241,
+      "min": 195.2,
+      "max": 199.1,
+      "q25": 196.89,
+      "q75": 197.58,
+      "gaussian_fit": {
+        "amplitude": 1234.5,
+        "amplitude_err": 15.2,
+        "mu": 197.236,
+        "mu_err": 0.0075,
+        "sigma": 0.521,
+        "sigma_err": 0.0053,
+        "fit_success": true
+      }
+    },
+    "rise_amplitude": {
+      "variable": "rise_amplitude",
+      "count": 5000,
+      "mean": 0.00912,
+      "std": 0.00034,
+      "sem": 0.0000048,
+      "median": 0.00910,
+      "min": 0.0082,
+      "max": 0.0105,
+      "q25": 0.00895,
+      "q75": 0.00928
+    }
+  },
+  "analysis_timestamp": "2025-12-18T10:30:45.123456",
+  "bins_used": 50
+}
+```
+
+**Key differences:**
+- Stage 1 provides raw event lists and basic summary statistics
+- Stage 2 adds comprehensive statistical analysis with errors and fits
+- Stage 3 uses either format but benefits from Stage 2's error estimates
       "trigger_time": 1.234e-6
     },
     ...
