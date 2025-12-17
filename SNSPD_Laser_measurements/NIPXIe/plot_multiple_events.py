@@ -18,13 +18,13 @@ from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from plot_style import setup_atlas_style
+from plot_style import setup_hep_style
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Apply ATLAS plotting style
-setup_atlas_style()
+# Apply HEP plotting style
+setup_hep_style()
 
 
 def extract_resistance_from_note(note):

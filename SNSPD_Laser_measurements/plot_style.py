@@ -1,25 +1,25 @@
 """
-ATLAS/ROOT-inspired plotting style configuration for matplotlib
-Based on ATLAS rootlogon.C configuration
+HEP (High Energy Physics) plotting style configuration for matplotlib
+Based on ATLAS/ROOT plotting conventions
 
 This module provides a centralized plotting style that can be imported
 and used by all analysis scripts.
 
 Usage:
-    from plot_style import setup_atlas_style
-    setup_atlas_style()
+    from plot_style import setup_hep_style
+    setup_hep_style()
 """
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 
-def setup_atlas_style():
+def setup_hep_style():
     """
-    Setup ATLAS/ROOT-inspired plotting style for matplotlib
+    Setup HEP (High Energy Physics) plotting style for matplotlib
     
     This function configures matplotlib to use a professional plotting style
-    similar to ATLAS/ROOT plots, with:
+    following HEP conventions (similar to ATLAS/ROOT plots), with:
     - Serif fonts (similar to ROOT)
     - Ticks on all four sides pointing inward
     - Bold lines and large markers

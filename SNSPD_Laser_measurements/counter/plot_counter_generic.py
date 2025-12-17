@@ -9,7 +9,7 @@ import sys
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from plot_style import setup_atlas_style
+from plot_style import setup_hep_style
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -171,8 +171,8 @@ def select_bias_voltages(bias_spec, available_biases):
 
 
 def main():
-    # Setup ATLAS plotting style
-    setup_atlas_style()
+    # Setup HEP plotting style
+    setup_hep_style()
     
     parser = argparse.ArgumentParser(description='Plot counter data from a measurement folder')
     parser.add_argument('data_folder', type=str, help='Path to data folder (e.g., /path/to/SMSPD_data/SMSPD_3/test/2-7/6K)')
