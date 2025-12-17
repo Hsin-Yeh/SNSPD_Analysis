@@ -159,9 +159,7 @@ def plot_events(event_files, event_number=None):
     ax.set_ylabel('Signal Amplitude (V)')
     
     event_str = f"Event {event_number}" if event_number is not None else "Events"
-    ax.text(0.05, 0.95, f'Signal Waveforms - {event_str}', 
-            transform=ax.transAxes, fontsize=16, fontweight='bold',
-            verticalalignment='top')
+    ax.set_title(f'Signal Waveforms - {event_str}')
     
     ax.legend(loc='best', frameon=True, fontsize=10)
     ax.grid(True, alpha=0.3)
