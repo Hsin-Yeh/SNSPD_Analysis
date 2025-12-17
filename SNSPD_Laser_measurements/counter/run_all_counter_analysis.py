@@ -13,7 +13,7 @@ def load_config(config_path='counter_analysis_config.json'):
     with open(config_path, 'r') as f:
         return json.load(f)
 
-def run_analysis(script_name, data_folder, measurement_name, bias_voltages, powers='all', dark_subtract_mode='closest', linear_fit='false', fit_range='all', fit_line_range='all', loglog='false', yaxis_scale='auto'):
+def run_analysis(script_name, data_folder, measurement_name, bias_voltages, powers='all', dark_subtract_mode='closest', linear_fit='false', fit_range='all', fit_line_range='all', loglog='false'):
     """Run a counter analysis script and return the result."""
     # Convert bias_voltages to string format
     if isinstance(bias_voltages, str):
@@ -46,8 +46,6 @@ def run_analysis(script_name, data_folder, measurement_name, bias_voltages, powe
         cmd.extend(['--fit-line-range', str(fit_line_range)])
     if loglog:
         cmd.extend(['--loglog', str(loglog)])
-    if yaxis_scale:
-        cmd.extend(['--yaxis-scale', str(yaxis_scale)])
     if measurement_name:
         cmd.extend(['--measurement-name', str(measurement_name)])
     
@@ -92,8 +90,7 @@ def main():
             'linear_fit': settings.get('linear_fit', 'false'),
             'fit_range': settings.get('fit_range', 'all'),
             'fit_line_range': settings.get('fit_line_range', 'all'),
-            'loglog': settings.get('loglog', 'false'),
-            'yaxis_scale': settings.get('yaxis_scale', 'auto')
+            'loglog': settings.get('loglog', 'false')
         })
     
     # Print configuration summary
@@ -110,7 +107,6 @@ def main():
         print(f"  Fit range: {settings.get('fit_range', 'all')}")
         print(f"  Fit line range: {settings.get('fit_line_range', 'all')}")
         print(f"  Log-log scale: {settings.get('loglog', 'false')}")
-        print(f"  Y-axis scale: {settings.get('yaxis_scale', 'auto')}")
         print(f"  Description: {settings['description']}")
     
     print("="*80)
@@ -141,8 +137,7 @@ def main():
             analysis['linear_fit'],
             analysis['fit_range'],
             analysis['fit_line_range'],
-            analysis['loglog'],
-            analysis['yaxis_scale']
+            analysis['loglog']
         )
         
         if success:
