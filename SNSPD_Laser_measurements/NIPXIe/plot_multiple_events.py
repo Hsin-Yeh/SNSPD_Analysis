@@ -147,12 +147,14 @@ def plot_events(event_files, event_number=None):
         time_ns = event_data['time'] * 1e9
         signal = event_data['signal']
         
-        # Plot signal
+        # Plot signal with markers only (no lines)
         ax.plot(time_ns, signal, 
+               marker='o',
+               linestyle='',
                label=event_data['label'],
                color=colors[idx],
                alpha=0.8,
-               linewidth=1.5)
+               markersize=4)
     
     # Configure plot
     ax.set_xlabel('Time (ns)')
