@@ -114,19 +114,6 @@ def plot_events(event_files, event_number=None):
     
     print(f"Found {len(event_files)} event files")
     
-    # Setup ATLAS style (if available)
-    try:
-        import sys
-        sys.path.insert(0, '../counter')
-        from plot_counter_generic import setup_atlas_style
-        setup_atlas_style()
-    except:
-        # Use default style if ATLAS style not available
-        plt.rcParams['font.size'] = 12
-        plt.rcParams['axes.labelsize'] = 14
-        plt.rcParams['lines.linewidth'] = 2
-        plt.rcParams['lines.markersize'] = 6
-    
     fig, ax = plt.subplots(figsize=(12, 7))
     
     # Use distinguishable colors
