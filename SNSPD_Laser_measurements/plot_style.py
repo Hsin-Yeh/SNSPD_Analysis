@@ -46,6 +46,8 @@ def setup_hep_style():
     mpl.rcParams['font.size'] = 16
     mpl.rcParams['axes.labelsize'] = 18
     mpl.rcParams['axes.titlesize'] = 20
+    mpl.rcParams['axes.titlelocation'] = 'left'  # Title outside frame on left
+    mpl.rcParams['axes.titlepad'] = 20  # Space between title and plot
     mpl.rcParams['xtick.labelsize'] = 16
     mpl.rcParams['ytick.labelsize'] = 16
     mpl.rcParams['legend.fontsize'] = 14
