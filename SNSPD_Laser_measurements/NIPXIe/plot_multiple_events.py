@@ -12,10 +12,19 @@ Example:
 import argparse
 import json
 import os
+import sys
 import re
 from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from plot_style import setup_atlas_style
+
 import matplotlib.pyplot as plt
 import numpy as np
+
+# Apply ATLAS plotting style
+setup_atlas_style()
 
 
 def extract_resistance_from_note(note):
