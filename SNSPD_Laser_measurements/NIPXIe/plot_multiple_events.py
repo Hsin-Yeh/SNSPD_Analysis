@@ -114,35 +114,45 @@ def plot_events(event_files, event_number=None):
     
     print(f"Found {len(event_files)} event files")
     
-    fig, ax = plt.subplots(figsize=(12, 7))
-    
-    # Use distinguishable colors
-    colors = plt.cm.tab10(np.linspace(0, 1, len(event_files)))
-    
-    for idx, filepath in enumerate(event_files):
+    # Read all event files first to sort by resistance
+    events_data = []
+    for filepath in event_files:
         print(f"  Loading: {os.path.basename(filepath)}")
-        
         try:
             event_data = read_event_file(filepath)
-            
-            # Convert time to nanoseconds for better readability
-            time_ns = event_data['time'] * 1e9
-            signal = event_data['signal']
-            
-            # Plot signal
-            ax.plot(time_ns, signal, 
-                   label=event_data['label'],
-                   color=colors[idx],
-                   alpha=0.8,
-                   linewidth=1.5)
+            # Extract numeric resistance for sorting
+            resistance_str = event_data['resistance']
+            resistance_match = re.search(r'(\d+\.?\d*)', resistance_str)
+            resistance_value = float(resistance_match.group(1)) if resistance_match else float('inf')
+            event_data['resistance_value'] = resistance_value
+            events_data.append(event_data)
             
             print(f"    Resistance: {event_data['resistance']}, "
                   f"Bias: {event_data['bias_voltage']}mV, {event_data['bias_current']}uA, "
                   f"Event: {event_data['event_number']}")
-            
         except Exception as e:
             print(f"    Error reading {filepath}: {e}")
             continue
+    
+    # Sort by resistance value
+    events_data.sort(key=lambda x: x['resistance_value'])
+    
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    # Use distinguishable colors
+    colors = plt.cm.tab10(np.linspace(0, 1, len(events_data)))
+    
+    for idx, event_data in enumerate(events_data):
+        # Convert time to nanoseconds for better readability
+        time_ns = event_data['time'] * 1e9
+        signal = event_data['signal']
+        
+        # Plot signal
+        ax.plot(time_ns, signal, 
+               label=event_data['label'],
+               color=colors[idx],
+               alpha=0.8,
+               linewidth=1.5)
     
     # Configure plot
     ax.set_xlabel('Time (ns)')
