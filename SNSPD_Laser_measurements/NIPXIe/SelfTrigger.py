@@ -317,44 +317,10 @@ def calculate_summary_statistics(events: List[Dict]) -> Dict:
     signal_rate = signal_count / total_time if total_time > 0 else 0
     dark_count_rate = dark_count / total_time if total_time > 0 else 0
     
-    # Calculate standard errors using binning approach
-    # Divide measurement into time bins to get independent rate estimates
-    n_bins = min(10, total_events // 10) if total_events >= 100 else max(2, total_events // 5)
-    
-    if total_time > 0 and n_bins >= 2:
-        time_min = min(time_values)
-        time_max = max(time_values)
-        bin_edges = np.linspace(time_min, time_max, n_bins + 1)
-        
-        # Calculate rate in each bin
-        count_rates_binned = []
-        signal_rates_binned = []
-        dark_rates_binned = []
-        
-        for i in range(n_bins):
-            bin_start = bin_edges[i]
-            bin_end = bin_edges[i + 1]
-            bin_duration = bin_end - bin_start
-            
-            if bin_duration > 0:
-                # Count events in this bin
-                events_in_bin = [e for e in events if bin_start <= e['pulse_time'] < bin_end]
-                signal_in_bin = [e for e in signal_events if bin_start <= e['pulse_time'] < bin_end]
-                dark_in_bin = [e for e in dark_events if bin_start <= e['pulse_time'] < bin_end]
-                
-                count_rates_binned.append(len(events_in_bin) / bin_duration)
-                signal_rates_binned.append(len(signal_in_bin) / bin_duration)
-                dark_rates_binned.append(len(dark_in_bin) / bin_duration)
-        
-        # Standard error = std / sqrt(n)
-        count_rate_error = np.std(count_rates_binned, ddof=1) / np.sqrt(len(count_rates_binned)) if len(count_rates_binned) > 1 else 0
-        signal_rate_error = np.std(signal_rates_binned, ddof=1) / np.sqrt(len(signal_rates_binned)) if len(signal_rates_binned) > 1 and signal_count > 0 else 0
-        dark_count_rate_error = np.std(dark_rates_binned, ddof=1) / np.sqrt(len(dark_rates_binned)) if len(dark_rates_binned) > 1 and dark_count > 0 else 0
-    else:
-        # Fallback to Poisson errors for small datasets
-        count_rate_error = np.sqrt(total_events) / total_time if total_time > 0 else 0
-        signal_rate_error = np.sqrt(signal_count) / total_time if total_time > 0 and signal_count > 0 else 0
-        dark_count_rate_error = np.sqrt(dark_count) / total_time if total_time > 0 and dark_count > 0 else 0
+    # Poisson errors
+    count_rate_error = np.sqrt(total_events) / total_time if total_time > 0 else 0
+    signal_rate_error = np.sqrt(signal_count) / total_time if total_time > 0 and signal_count > 0 else 0
+    dark_count_rate_error = np.sqrt(dark_count) / total_time if total_time > 0 and dark_count > 0 else 0
     
     # Efficiency and binomial error
     efficiency = (signal_rate / SOURCE_RATE) if signal_rate > 0 else 0
@@ -464,6 +430,87 @@ def save_zero_results(output_filename: str):
     print(f"Saved zero-filled results to {output_filename}")
 
 
+def save_single_event_data(filename: str, output_filename: str, event_number: int):
+    """
+    Save a single event with metadata to JSON without full analysis.
+    
+    Args:
+        filename: Input TDMS filename
+        output_filename: Output JSON filename
+        event_number: Event number to extract (0-indexed)
+    """
+    global metadata_dict
+    
+    with TdmsFile.open(filename) as tdms_file:
+        # Extract metadata
+        metadata = tdms_file.properties
+        metadata_df = pd.DataFrame(metadata.items(), columns=['metaKey', 'metaValue'])
+        
+        metadata_dict = {row['metaKey']: row['metaValue'] 
+                        for _, row in metadata_df.iterrows()}
+        
+        recordlength = int(metadata_df.loc[metadata_df['metaKey'] == 'record length', 'metaValue'].iloc[0])
+        
+        # Check for ADC Readout Channels
+        group_names = [group.name for group in tdms_file.groups()]
+        
+        if 'ADC Readout Channels' not in group_names:
+            print("Error: No ADC Readout Channels - signal too low or detector latched")
+            return
+        
+        # Get channel data
+        chSig_total = tdms_file['ADC Readout Channels']['chSig']
+        chTrig_total = tdms_file['ADC Readout Channels']['chTrig']
+        chTime_total = tdms_file['ADC Readout Channels']['Time']
+        
+        totalEvents = int(len(chSig_total) / recordlength)
+        
+        if event_number >= totalEvents or event_number < 0:
+            print(f"Error: Event {event_number} out of range (0-{totalEvents-1})")
+            return
+        
+        print(f"Extracting event {event_number} from {totalEvents} total events")
+        
+        # Extract single event
+        idx = event_number * recordlength
+        chSig = chSig_total[idx:idx+recordlength].tolist()
+        chTrig = chTrig_total[idx:idx+recordlength].tolist()
+        chTime = float(chTime_total[idx:idx+1][0])
+        
+        # Get timing info - calculate from sample rate
+        sample_rate = float(metadata_dict.get('actual sample rate', 2.5e9))
+        sample_interval = 1.0 / sample_rate if sample_rate > 0 else 0.0
+        time_array = [i * sample_interval for i in range(len(chSig))]
+        
+        # Create output structure
+        single_event_data = {
+            "metadata": metadata_dict,
+            "event_info": {
+                "event_number": event_number,
+                "total_events_in_file": totalEvents,
+                "record_length": recordlength,
+                "time_stamp": chTime,
+                "sample_interval": sample_interval
+            },
+            "waveform_data": {
+                "time": time_array,
+                "signal_channel": chSig,
+                "trigger_channel": chTrig
+            }
+        }
+        
+        # Save to JSON
+        with open(output_filename, "w") as f:
+            json.dump(single_event_data, f, indent=2)
+        
+        print(f"\n==========Single Event Saved==========")
+        print(f"Event number: {event_number}")
+        print(f"Time stamp: {chTime}")
+        print(f"Record length: {recordlength}")
+        print(f"Sample interval: {sample_interval}")
+        print(f"Saved to: {output_filename}")
+
+
 def save_analysis_results(output_filename: str, voltage: Optional[int], 
                          current: Optional[int], resistance: Optional[float]):
     """Save analysis results to JSON file."""
@@ -524,6 +571,8 @@ def parse_arguments():
     parser.add_argument('--subset', '-s', default=-1, type=int, help='Process first N events')
     parser.add_argument('--trigger_method', default='spline', choices=['spline', 'simple'],
                        help='Trigger calculation: spline (accurate) or simple (fast)')
+    parser.add_argument('--save_single_event', '-e', default=-1, type=int, 
+                       help='Save single event (by number) to JSON without full analysis')
     return parser.parse_args()
 
 
@@ -566,6 +615,16 @@ def main():
         output_dir = determine_output_directory(in_filename, args.outputDir)
         createDir(output_dir)
         
+        # Check if single event save mode
+        if args.save_single_event >= 0:
+            output_filename = os.path.join(output_dir, basename + f"_event{args.save_single_event}.json")
+            print(f"Single event mode - saving event {args.save_single_event}")
+            print(f"Output: {output_filename}")
+            save_single_event_data(in_filename, output_filename, args.save_single_event)
+            print(f"\n==========Completed: {in_filename}==========\n")
+            continue
+        
+        # Full analysis mode
         output_filename = os.path.join(output_dir, basename + "_analysis.json")
         print(f"Output: {output_dir}")
         

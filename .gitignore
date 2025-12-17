@@ -28,8 +28,13 @@ NoiseStudy/plots
 # simulation
 simulation/plots
 simulation/Polarization
-SNSPD_Laser_measurements/python/old/Stats/
-SNSPD_Laser_measurements/python/old/plots/
+# Ignore old Stats and plots directories
+SNSPD_Laser_measurements/old/Stats/
+SNSPD_Laser_measurements/old/plots/
+
+# Ignore output and plots directories everywhere
+output/
+plots/
 
 # Design folder - ignore all except .ipynb files
 Design/*
