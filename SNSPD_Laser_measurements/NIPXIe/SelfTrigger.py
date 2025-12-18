@@ -55,8 +55,11 @@ def determine_output_directory(input_filename: str, default_dir: str) -> str:
     """
     Determine output directory based on input file location.
     
-    If input is in SNSPD_rawdata or SNSPD_data, outputs to SNSPD_analyzed_json
-    with the same subdirectory structure.
+    Creates 3-stage analysis folder structure next to SNSPD_rawdata:
+    - SNSPD_rawdata/path/to/data/*.tdms
+    - SNSPD_analysis/path/to/data/stage1_events/*.json  (Stage 1 output)
+    - SNSPD_analysis/path/to/data/stage2_statistics/    (Stage 2 output)
+    - SNSPD_analysis/path/to/data/stage3_plots/         (Stage 3 output)
     """
     abs_path = os.path.abspath(input_filename)
     path_parts = abs_path.split(os.sep)
@@ -64,12 +67,14 @@ def determine_output_directory(input_filename: str, default_dir: str) -> str:
     for i, part in enumerate(path_parts):
         if part in ['SNSPD_rawdata', 'SNSPD_data']:
             base_path = os.sep.join(path_parts[:i])
-            output_base_dir = os.path.join(base_path, 'SNSPD_analyzed_json')
-            subdirs = path_parts[i+1:-1]
+            # Create SNSPD_analysis directory instead of SNSPD_analyzed_json
+            output_base_dir = os.path.join(base_path, 'SNSPD_analysis')
+            subdirs = path_parts[i+1:-1]  # Get subdirectory structure
             
             if subdirs:
-                return os.path.join(output_base_dir, *subdirs) + '/'
-            return output_base_dir + '/'
+                # Add stage1_events subfolder
+                return os.path.join(output_base_dir, *subdirs, 'stage1_events') + '/'
+            return os.path.join(output_base_dir, 'stage1_events') + '/'
     
     return default_dir + '/'
 
