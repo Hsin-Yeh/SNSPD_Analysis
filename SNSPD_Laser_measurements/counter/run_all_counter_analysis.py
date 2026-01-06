@@ -13,7 +13,7 @@ def load_config(config_path='counter_analysis_config.json'):
     with open(config_path, 'r') as f:
         return json.load(f)
 
-def run_analysis(script_name, data_folder, measurement_name, bias_voltages, powers='all', dark_subtract_mode='closest', linear_fit='false', fit_range='all', fit_line_range='all', loglog='false'):
+def run_analysis(script_name, data_folder, measurement_name, bias_voltages, powers='all', dark_subtract_mode='closest', linear_fit='false', fit_range='all', fit_line_range='all', loglog='false', yaxis_scale='auto'):
     """Run a counter analysis script and return the result."""
     # Convert bias_voltages to string format
     if isinstance(bias_voltages, str):
@@ -46,6 +46,8 @@ def run_analysis(script_name, data_folder, measurement_name, bias_voltages, powe
         cmd.extend(['--fit-line-range', str(fit_line_range)])
     if loglog:
         cmd.extend(['--loglog', str(loglog)])
+    if yaxis_scale:
+        cmd.extend(['--yaxis-scale', str(yaxis_scale)])
     if measurement_name:
         cmd.extend(['--measurement-name', str(measurement_name)])
     
@@ -90,7 +92,8 @@ def main():
             'linear_fit': settings.get('linear_fit', 'false'),
             'fit_range': settings.get('fit_range', 'all'),
             'fit_line_range': settings.get('fit_line_range', 'all'),
-            'loglog': settings.get('loglog', 'false')
+            'loglog': settings.get('loglog', 'false'),
+            'yaxis_scale': settings.get('yaxis_scale', 'auto')
         })
     
     # Print configuration summary
@@ -137,7 +140,8 @@ def main():
             analysis['linear_fit'],
             analysis['fit_range'],
             analysis['fit_line_range'],
-            analysis['loglog']
+            analysis['loglog'],
+            analysis.get('yaxis_scale', 'auto')
         )
         
         if success:

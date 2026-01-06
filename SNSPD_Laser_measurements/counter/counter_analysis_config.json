@@ -1,11 +1,26 @@
 {
   "_info": "Options: enabled: 'true'/'false' to run this measurement; dark_subtract_mode: 'closest'/'latest' for dark count subtraction method; bias_voltages: [66,68,70] or 'all' or '20%'/'50%'; powers: [369,446,534] or 'all'; linear_fit: 'true'/'false'; fit_range: 'all' or 'min,max' power in nW; fit_line_range: 'all' or 'min,max' power in nW for fit line display; loglog: 'true'/'false' for log-log scale on power plot",
-  "base_path": "/Users/ya/Documents/Projects/SNSPD/SNSPD_data/SMSPD_3",
+  "base_path": "/Users/ya/SNSPD_rawdata/SMSPD_3",
   "measurements": {
+    "15kHz_20251225": {
+      "enabled": "true",
+      "folder": "15kHz_20251225/2-7/6K",
+      "bias_voltages": [50, 55, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80],
+      "powers": "all",
+      "dark_subtract_mode": "latest",
+      "linear_fit": "true",
+      "fit_range": "1000,4000",
+      "fit_line_range": "1000,4000",
+      "loglog": "true",
+      "yaxis_scale": "100,20000",
+      "description": "Auto-detected: 17 power folders",
+      "_available_bias_voltages": [50, 55, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80],
+      "_available_powers": [369, 446, 534, 629, 785, 969, 1193, 1443, 1823, 2162, 2690, 3310, 4080, 5060, 6180, 7170]
+    },
     "10MHz": {
-      "enabled": "false",
+      "enabled": "true",
       "folder": "Counter_sweep_power_3/2-7/6K",
-      "bias_voltages": [42, 50, 60, 68, 74],
+      "bias_voltages": [38, 42, 46, 50, 54, 56, 58, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78],
       "powers": "all",
       "dark_subtract_mode": "closest",
       "linear_fit": "true",
@@ -18,7 +33,7 @@
       "yaxis_scale": "auto"
     },
     "1MHz": {
-      "enabled": "true",
+      "enabled": "false",
       "folder": "1MHz_single/2-7/6K",
       "bias_voltages": "all",
       "powers": "all",
@@ -33,7 +48,7 @@
       "_available_powers": [211, 249, 302, 369, 446, 534, 629, 785, 969, 1193, 1443, 1823, 2162, 2690, 3310, 4080, 5060, 6180]
     },
     "100kHz": {
-      "enabled": "true",
+      "enabled": "false",
       "folder": "100kHz/2-7/6K",
       "bias_voltages": "all",
       "powers": "all",
@@ -63,7 +78,7 @@
       "_available_powers": [302, 369, 446, 534, 629, 785, 969, 1193, 1443, 1823, 2162, 2690, 3310, 4080, 5060]
     },
     "20kHz": {
-      "enabled": "true",
+      "enabled": "false",
       "folder": "20kHz/2-7/6K",
       "bias_voltages": [50, 60, 68, 70, 74],
       "powers": [369, 446, 534, 629, 969, 1443, 1823, 2162, 2690],
@@ -195,6 +210,34 @@
       "_available_bias_voltages": [70],
       "_available_powers": [],
       "yaxis_scale": "auto"
+    },
+    "1MHz_single": {
+      "enabled": "false",
+      "folder": "1MHz_single/2-7/6K",
+      "bias_voltages": [68],
+      "powers": "all",
+      "dark_subtract_mode": "closest",
+      "linear_fit": "false",
+      "fit_range": "all",
+      "fit_line_range": "all",
+      "loglog": "false",
+      "description": "Auto-detected: 19 power folders",
+      "_available_bias_voltages": [68],
+      "_available_powers": [211, 249, 302, 369, 446, 534, 629, 785, 969, 1193, 1443, 1823, 2162, 2690, 3310, 4080, 5060, 6180]
+    },
+    "Counter_sweep_power_3": {
+      "enabled": "false",
+      "folder": "Counter_sweep_power_3/2-7/6K",
+      "bias_voltages": [38, 42, 46, 50, 54],
+      "powers": "all",
+      "dark_subtract_mode": "closest",
+      "linear_fit": "false",
+      "fit_range": "all",
+      "fit_line_range": "all",
+      "loglog": "false",
+      "description": "Auto-detected: 9 power folders",
+      "_available_bias_voltages": [38, 42, 46, 50, 54, 56, 58, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78],
+      "_available_powers": [369, 446, 534, 629, 785, 969, 1193, 1443]
     }
-  }
+ }
 }

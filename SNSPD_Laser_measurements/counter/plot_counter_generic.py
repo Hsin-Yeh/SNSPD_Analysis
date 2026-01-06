@@ -30,32 +30,29 @@ def parse_filename(filename):
     return None, None
 
 def read_counter_file(filepath):
-    """Read counter data file and return bias voltages and median count rates"""
+    """Read counter data file and return target voltages and median count rates"""
     with open(filepath, 'r') as f:
         lines = f.readlines()
     
     # Skip header
     data_lines = lines[1:]
     
-    bias_voltages = []
+    target_voltages = []
     count_rates = []
     
     for line in data_lines:
-        parts = line.strip().split('\t')
-        if len(parts) < 7:
+        parts = line.strip().split()
+        # Expect at least 8 columns now: [bias_voltage, target_voltage, ...measurements]
+        if len(parts) < 8:
             continue
-            
-        bias_voltage = float(parts[0])
-        # measurements start from index 6 (7th column)
-        measurements = [float(x) for x in parts[6:]]
-        
+        target_voltage = float(parts[0])
+        # measurements start from index 7 (8th column)
+        measurements = [float(x) for x in parts[7:]]
         # Calculate median count rate (not mean)
         median_count_rate = np.median(measurements)
-        
-        bias_voltages.append(bias_voltage)
+        target_voltages.append(target_voltage)
         count_rates.append(median_count_rate)
-    
-    return np.array(bias_voltages), np.array(count_rates)
+    return np.array(target_voltages), np.array(count_rates)
 
 def find_latest_files(data_dir):
     """Find the latest file for each power level in the directory"""
@@ -112,22 +109,20 @@ def find_closest_dark_file(signal_timestamp, dark_files):
     return best_dark
 
 def get_available_bias_voltages(filepath):
-    """Extract all unique bias voltages from a data file"""
+    """Extract all unique target voltages from a data file"""
     with open(filepath, 'r') as f:
         lines = f.readlines()
-    
-    bias_voltages = set()
+    target_voltages = set()
     for line in lines[1:]:  # Skip header
         parts = line.strip().split('\t')
         if len(parts) >= 2:
             try:
-                bias_mv = int(round(float(parts[0]) * 1000))
-                if bias_mv > 0:
-                    bias_voltages.add(bias_mv)
+                target_mv = int(round(float(parts[1]) * 1000))
+                if target_mv > 0:
+                    target_voltages.add(target_mv)
             except ValueError:
                 continue
-    
-    return sorted(list(bias_voltages))
+    return sorted(list(target_voltages))
 
 
 def select_bias_voltages(bias_spec, available_biases):
@@ -183,7 +178,7 @@ def main():
     parser.add_argument('--dark-subtract-mode', type=str, default='closest', 
                         help='Dark count subtraction method: "closest" (closest in time) or "latest" (latest file) (default: closest)')
     parser.add_argument('--remove-lowest', type=int, default=0, help='Number of lowest power points to remove (default: 0)')
-    parser.add_argument('--tolerance', type=float, default=1.5, help='Bias voltage tolerance in mV (default: 1.5)')
+    parser.add_argument('--tolerance', type=float, default=0.5, help='Bias voltage tolerance in mV (default: 1.5)')
     parser.add_argument('--linear-fit', type=str, default='false', help='Enable linear fit: "true" or "false" (default: false)')
     parser.add_argument('--fit-range', type=str, default='all', help='Fit range: "all" or "min_power,max_power" in nW (default: all)')
     parser.add_argument('--fit-line-range', type=str, default='all', help='Fit line display range: "all" or "min_power,max_power" in nW (default: all)')
@@ -324,9 +319,7 @@ def main():
     ax1.set_ylabel('Count Rate (counts/s)')
     
     title_suffix = ' (Dark Subtracted)' if latest_dark_file else ''
-    ax1.text(0.05, 0.95, f'{measurement_name}{title_suffix}', 
-             transform=ax1.transAxes, fontsize=18, fontweight='bold',
-             verticalalignment='top')
+    ax1.set_title(f'{measurement_name}{title_suffix}', fontsize=18, fontweight='bold')
     ax1.legend(loc='best', frameon=True)
     ax1.set_ylim(bottom=0)
     
@@ -427,7 +420,8 @@ def main():
                             chi2_ndf = chi_squared / ndf if ndf > 0 else 0
                             
                             # Plot data points with power-law fit label
-                            label_combined = f'{bias_mv:.1f}mV: n={n:.2f}±{n_err:.2f}, χ²/ndf={chi2_ndf:.2f}'
+                            # label_combined = f'{bias_mv:.1f}mV: n={n:.2f}±{n_err:.2f}, χ²/ndf={chi2_ndf:.2f}'
+                            label_combined = f'{bias_mv:.1f}mV: n={n:.2f}±{n_err:.2f}'
                             ax2.plot(powers_valid, rates_valid, 'o', 
                                     label=label_combined, color=plot_color, alpha=0.9)
                             
@@ -521,10 +515,7 @@ def main():
     # Configure second plot - ATLAS style
     ax2.set_xlabel('Optical Power (nW)')
     ax2.set_ylabel('Count Rate (counts/s)')
-    ax2.text(0.05, 0.95, f'{measurement_name} (Raw data)', 
-             transform=ax2.transAxes, fontsize=18, fontweight='bold',
-             verticalalignment='top')
-    
+    ax2.set_title(f'{measurement_name} (Raw data)', fontsize=18, fontweight='bold')
     # Dynamic legend: more columns for more entries, smaller font, tighter spacing
     num_entries = len([h for h in ax2.get_legend_handles_labels()[0]])
     if num_entries > 10:

@@ -24,13 +24,10 @@ from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
-import plot_utils
-import plot_rates_vs_bias_v2
-import plot_rates_vs_power
+import utils.plot_utils as plot_utils
+import plot_statistics_vs_power_bias
 
-from plot_utils import read_analysis_files, group_by_power, group_by_bias, print_data_summary
-from plot_rates_vs_bias_v2 import plot_single_power_vs_bias, plot_multi_power_vs_bias
-from plot_rates_vs_power import plot_single_bias_vs_power, plot_multi_bias_vs_power
+from utils.plot_utils import read_analysis_files, group_by_power, group_by_bias, print_data_summary
 
 # Import pulse characteristic plotting functions
 try:
@@ -67,6 +64,96 @@ parser.add_argument('--mode', '-m', choices=['all', 'vs_bias', 'vs_power', 'puls
                    help='Plot mode: all, vs_bias, vs_power, or pulse')
 parser.add_argument('--log_scale', action='store_true', help='Use log scale for power plots')
 parser.add_argument('--recursive', '-r', action='store_true', default=True, help='Search recursively in subdirectories')
+parser.add_argument('--loglog_fit_range', type=str, default=None, help='Fit range for log-log power plots, format: min,max (nW)')
+
+def find_common_path(directories):
+    """
+    Find the longest common path component from a list of directories.
+    
+    Example:
+      Input: ['/path/to/SMSPD_3/Laser/10000kHz/93nW/data',
+              '/path/to/SMSPD_3/Laser/10000kHz/207nW/data']
+      Output: 'SMSPD_3/Laser/10000kHz' (common parent directory)
+    
+    Returns the deepest common path component, or 'output' if none found.
+    """
+    if not directories or len(directories) == 1:
+        # Single directory: use last meaningful component
+        if directories:
+            path_parts = Path(directories[0]).parts
+            # Skip generic names like 'data', 'plots', '20251210_071435'
+            skip_names = {'data', 'plots', 'stage1_events', 'stage2_statistics', 'stage3_plots'}
+            for part in reversed(path_parts):
+                if part not in skip_names and not part.startswith('202'):
+                    return part
+        return 'output'
+    
+    # Multiple directories: find common path
+    paths = [Path(d).parts for d in directories]
+    
+    # Find longest common prefix
+    common_parts = []
+    for parts in zip(*paths):
+        if len(set(parts)) == 1:  # All paths have same component
+            common_parts.append(parts[0])
+        else:
+            break
+    
+    # Find the deepest meaningful common component
+    skip_names = {'data', 'plots', 'stage1_events', 'stage2_statistics', 'stage3_plots', 
+                  'SNSPD_analyzed_output', 'SNSPD_rawdata'}
+    
+    for part in reversed(common_parts):
+        if part not in skip_names and not part.startswith('202'):
+            return part
+    
+    return 'output'
+
+def find_common_parent_path(directories):
+    """
+    Find the common directory name starting after 'stage2_statistics' among all input directories.
+    Example:
+      Input: ['/path/to/SMSPD_3/Laser/10000kHz/93nW/data',
+              '/path/to/SMSPD_3/Laser/10000kHz/207nW/data']
+        Output: 'SMSPD_3/Laser/10000kHz'
+    """
+    if not directories:
+        return ''
+    split_paths = [list(Path(d).resolve().parts) for d in directories]
+    # Find longest common prefix
+    common = []
+    for parts in zip(*split_paths):
+        if len(set(parts)) == 1:
+            common.append(parts[0])
+        else:
+            break
+    # Find index of 'stage2_statistics' in common path
+    if 'stage2_statistics' in common:
+        idx = common.index('stage2_statistics') + 1
+        # Take everything after 'stage2_statistics'
+        result = common[idx:]
+    else:
+        # If not found, skip generic names from the end
+        skip_names = {'data', 'plots', 'stage1_events', 'stage2_statistics', 'stage3_plots', 'SNSPD_analyzed_output', 'SNSPD_rawdata'}
+        result = common[:]
+        while result and (result[-1] in skip_names or result[-1].startswith('20')):
+            result.pop()
+    return os.path.join(*result) if result else ''
+
+def determine_stage3_output_dir(input_dirs):
+    """
+    Output directory is always under ~/SNSPD_analyzed_output/stage3_plots/<common_parent_path>
+    """
+    home = str(Path.home())
+    analyzed_output = os.path.join(home, 'SNSPD_analyzed_output')
+    print(f"\nUsing analyzed output base directory: {analyzed_output}")
+    stage3_dir = os.path.join(analyzed_output, 'stage3_plots')
+    print(f"Stage 3 plots will be saved under: {stage3_dir}")
+    common_parent = find_common_parent_path(input_dirs)
+    print(f"Common parent path for input directories: {common_parent}")
+    output_dir = os.path.join(stage3_dir, common_parent)
+    os.makedirs(output_dir, exist_ok=True)
+    return output_dir
 
 def main():
     args = parser.parse_args()
@@ -81,6 +168,15 @@ def main():
     print(f"Mode: {args.mode}")
     print(f"Recursive search: {args.recursive}")
     
+    # Parse loglog_fit_range argument
+    loglog_fit_range = None
+    if args.loglog_fit_range:
+        try:
+            fit_min, fit_max = map(float, args.loglog_fit_range.split(','))
+            loglog_fit_range = (fit_min, fit_max)
+        except Exception as e:
+            print(f"Warning: Could not parse --loglog_fit_range '{args.loglog_fit_range}': {e}")
+    
     # Read data (works with both *_analysis.json and statistics_*.json)
     data = read_analysis_files(args.input_dir, args.pattern, args.recursive)
     
@@ -88,67 +184,43 @@ def main():
         print("\nNo valid data found!")
         return
     
-    print_data_summary(data)
+    # print_data_summary(data)
     
     # Group data
     power_groups = group_by_power(data)
     bias_groups = group_by_bias(data)
     
-    # Extract sample name from input directory path
-    # Example: ../../SNSPD_analyzed_json/SMSPD_3/ -> SMSPD_3
-    first_input_dir = input_dirs[0]
-    path_parts = Path(first_input_dir).parts
-    
-    # Find the component after 'SNSPD_analyzed_json'
-    sample_name = None
-    for i, part in enumerate(path_parts):
-        if 'SNSPD_analyzed_json' in part and i + 1 < len(path_parts):
-            sample_name = path_parts[i + 1]
-            break
-    
-    # Fallback to last component if SNSPD_analyzed_json not found
-    if sample_name is None:
-        sample_name = os.path.basename(os.path.normpath(first_input_dir))
-    
-    # Create output directory structure: output/{sample_name}/
-    output_dir = os.path.join(args.output_dir, 'output', sample_name)
-    os.makedirs(output_dir, exist_ok=True)
-    
-    print(f"Sample name: {sample_name}")
+    # Use new output directory strategy
+    output_dir = determine_stage3_output_dir(input_dirs)
     print(f"Plots will be saved to: {output_dir}")
     
     # Generate plots based on mode
+    # Generate statistics vs bias/power plots
     if args.mode in ['all', 'vs_bias']:
         print("\n" + "="*60)
         print("GENERATING RATES VS BIAS VOLTAGE PLOTS")
         print("="*60)
         
-        # Combined multi-power plot
-        if len(power_groups) > 1:
-            print("\n--- Combined Multi-Power Comparison ---")
-            plot_multi_power_vs_bias(power_groups, output_dir)
-    
+        print("\n--- Statistics vs Bias (all powers) ---")
+        for power, pdata in power_groups.items():
+            plot_statistics_vs_power_bias.plot_statistics_vs_bias(power, pdata, output_dir) 
     if args.mode in ['all', 'vs_power']:
         print("\n" + "="*60)
         print("GENERATING RATES VS POWER PLOTS")
         print("="*60)
         
-        # Combined multi-bias plot
-        if len(bias_groups) > 1:
-            print("\n--- Combined Multi-Bias Comparison ---")
-            plot_multi_bias_vs_power(bias_groups, output_dir, args.log_scale)
-    
-    if args.mode in ['all', 'pulse'] and HAS_PULSE_PLOTS:
-        print("\n" + "="*60)
-        print("GENERATING PULSE CHARACTERISTIC PLOTS")
-        print("="*60)
-        
-        print("\n--- Pulse PTP vs Bias Voltage ---")
-        plot_pulse_ptp_vs_bias(power_groups, output_dir)
-        
-        print("\n--- Pulse PTP vs Power ---")
-        plot_pulse_ptp_vs_power(bias_groups, output_dir)
-    
+        print("\n--- Statistics vs Power (all biases) ---")
+        for bias, bdata in bias_groups.items():
+            plot_statistics_vs_power_bias.plot_statistics_vs_power(bias, bdata, output_dir, loglog_fit_range=loglog_fit_range)
+          
+    # Generate multi-variable overlay plots
+    if args.mode in ['all', 'vs_bias']:
+        print("\n--- Multi-variable overlay: all powers vs bias ---")
+        plot_statistics_vs_power_bias.plot_multi_statistics_vs_bias(power_groups, output_dir)
+    if args.mode in ['all', 'vs_power']:
+        print("\n--- Multi-variable overlay: all biases vs power ---")
+        plot_statistics_vs_power_bias.plot_multi_statistics_vs_power(bias_groups, output_dir, loglog_fit_range=loglog_fit_range)
+          
     print("\n" + "="*60)
     print("PLOTTING COMPLETE")
     print("="*60)

@@ -30,8 +30,6 @@ from utils.plotUtilscopy import *
 # CONSTANTS
 # =============================================================================
 
-TRIGGER_CUT_MIN = 196
-TRIGGER_CUT_MAX = 198
 SOURCE_RATE = 1E7  # 10 MHz laser repetition rate
 
 # Global state
@@ -55,11 +53,11 @@ def determine_output_directory(input_filename: str, default_dir: str) -> str:
     """
     Determine output directory based on input file location.
     
-    Creates 3-stage analysis folder structure next to SNSPD_rawdata:
+    Creates flat 3-stage analysis folder structure:
     - SNSPD_rawdata/path/to/data/*.tdms
-    - SNSPD_analysis/path/to/data/stage1_events/*.json  (Stage 1 output)
-    - SNSPD_analysis/path/to/data/stage2_statistics/    (Stage 2 output)
-    - SNSPD_analysis/path/to/data/stage3_plots/         (Stage 3 output)
+    - SNSPD_analyzed_output/stage1_events/path/to/data/*.json
+    - SNSPD_analyzed_output/stage2_statistics/path/to/data/*.json
+    - SNSPD_analyzed_output/stage3_plots/common_path/*.png
     """
     abs_path = os.path.abspath(input_filename)
     path_parts = abs_path.split(os.sep)
@@ -67,14 +65,12 @@ def determine_output_directory(input_filename: str, default_dir: str) -> str:
     for i, part in enumerate(path_parts):
         if part in ['SNSPD_rawdata', 'SNSPD_data']:
             base_path = os.sep.join(path_parts[:i])
-            # Create SNSPD_analysis directory instead of SNSPD_analyzed_json
-            output_base_dir = os.path.join(base_path, 'SNSPD_analysis')
+            output_base_dir = os.path.join(base_path, 'SNSPD_analyzed_output', 'stage1_events')
             subdirs = path_parts[i+1:-1]  # Get subdirectory structure
             
             if subdirs:
-                # Add stage1_events subfolder
-                return os.path.join(output_base_dir, *subdirs, 'stage1_events') + '/'
-            return os.path.join(output_base_dir, 'stage1_events') + '/'
+                return os.path.join(output_base_dir, *subdirs) + '/'
+            return output_base_dir + '/'
     
     return default_dir + '/'
 
@@ -97,12 +93,6 @@ def extract_bias_parameters(filename: str) -> Tuple[Optional[int], Optional[int]
 # =============================================================================
 # PULSE ANALYSIS FUNCTIONS
 # =============================================================================
-
-def Pulse_selection(trig_check):
-    """Legacy function - kept for compatibility but not used."""
-    if trig_check > 22 and trig_check < 24:
-        return True
-    return False
 
 def calculate_rise_fall_times(data: np.ndarray) -> Dict[str, float]:
     """
@@ -153,7 +143,7 @@ def calculate_rise_fall_times(data: np.ndarray) -> Dict[str, float]:
     }
 
 def analyze_single_event(data: np.ndarray, trig: np.ndarray, time: float, 
-                        time_previous: float, event_num: int, trigger_method: str):
+                        time_previous: float, event_num: int, find_sync_method: str):
     """Analyze a single event and store statistics."""
     # Calculate basic pulse parameters
     baseline = np.mean(data[:10]) if len(data) >= 10 else data[0]
@@ -161,39 +151,45 @@ def analyze_single_event(data: np.ndarray, trig: np.ndarray, time: float,
     pulse_min = np.min(data)
     pulse_ptp = np.ptp(data)
     
-    # Find trigger time
-    if trigger_method == 'simple':
-        trig_check = Find_Trigger_time_simple(trig)
+    # Find laser sync time
+    if find_sync_method == 'simple':
+        laser_sync_arrival = Find_sync_arrival_simple(trig)
     else:
-        trig_check = Find_Trigger_time_splineFit(trig)
+        laser_sync_arrival = Find_sync_arrival_splineFit(trig)
     
     # Calculate timing parameters
     timing_params = calculate_rise_fall_times(data)
     
+    # Find signal pulse arrival times at different thresholds
+    arrival_times = Find_signal_arrival(data)
+    
     debug_print(f'Event {event_num}: Rise={timing_params["rise_time_10_90"]:.2f}, '
-               f'Fall={timing_params["fall_time_90_10"]:.2f} samples')
+               f'Fall={timing_params["fall_time_90_10"]:.2f} samples, '
+               f'Arrival@50%={arrival_times["arrival_time_50"]:.2f}')
     
     # Store event statistics
     event_stats = {
         "event_number": event_num,
-        "pre_mean": float(baseline),
-        "pulse_max": float(pulse_max),
-        "pulse_min": float(pulse_min),
-        "pulse_fall_range_ptp": float(pulse_ptp),
-        "pulse_time": float(time),
-        "pulse_time_interval": float(time_previous - time),
-        "trigger_check": float(trig_check),
-        "pass_selection": TRIGGER_CUT_MIN <= trig_check <= TRIGGER_CUT_MAX,
-        "rise_amplitude": float(timing_params['rise_amplitude']),
-        "rise_time_10_90": float(timing_params['rise_time_10_90']),
-        "fall_time_90_10": float(timing_params['fall_time_90_10']),
-        "rise_slew_rate": float(timing_params['rise_slew_rate']),
-        "fall_slew_rate": float(timing_params['fall_slew_rate'])
+        "event_time": float(time),
+        "event_interval": float(time_previous - time),
+        "signal_baseline": float(baseline),
+        "signal_max": float(pulse_max),
+        "signal_min": float(pulse_min),
+        "signal_fall_amplitude": float(pulse_ptp),
+        "signal_rise_amplitude": float(timing_params['rise_amplitude']),
+        "signal_rise_time_10_90": float(timing_params['rise_time_10_90']),
+        "signal_fall_time_90_10": float(timing_params['fall_time_90_10']),
+        "signal_rise_slew_rate": float(timing_params['rise_slew_rate']),
+        "signal_fall_slew_rate": float(timing_params['fall_slew_rate']),
+        "laser_sync_arrival": float(laser_sync_arrival)
     }
+    
+    # Add arrival times to event statistics
+    event_stats.update(arrival_times)
     
     event_statistics.append(event_stats)
 
-def Find_Trigger_time_splineFit(chTrig: np.ndarray) -> float:
+def Find_sync_arrival_splineFit(chTrig: np.ndarray) -> float:
     """
     Find trigger arrival time using spline interpolation and derivative analysis.
     
@@ -246,7 +242,7 @@ def Find_Trigger_time_splineFit(chTrig: np.ndarray) -> float:
     return -1
 
 
-def Find_Trigger_time_simple(chTrig: np.ndarray, threshold_fraction: float = 0.5) -> float:
+def Find_sync_arrival_simple(chTrig: np.ndarray, threshold_fraction: float = 0.5) -> float:
     """
     Fast threshold crossing method (10-50x faster than spline).
     
@@ -269,6 +265,68 @@ def Find_Trigger_time_simple(chTrig: np.ndarray, threshold_fraction: float = 0.5
     return -1
 
 
+def Find_signal_arrival(data: np.ndarray, threshold_fractions: List[float] = None) -> Dict:
+    """
+    Find signal pulse arrival time on rising edge using multiple threshold levels.
+    
+    Detects when the signal pulse crosses various threshold levels on the rising edge,
+    providing timing information at different points of the pulse rise.
+    
+    Args:
+        data: Signal waveform data (numpy array)
+        threshold_fractions: List of threshold levels (0-1) to detect.
+                           Default: [0.1, 0.2, 0.5, 0.8, 0.9]
+    
+    Returns:
+        Dictionary with arrival times at each threshold:
+        {
+            'arrival_time_10': time at 10% threshold (samples),
+            'arrival_time_20': time at 20% threshold (samples),
+            'arrival_time_50': time at 50% threshold (samples),
+            'arrival_time_80': time at 80% threshold (samples),
+            'arrival_time_90': time at 90% threshold (samples)
+        }
+        Returns -1 for any threshold not found.
+    """
+    if threshold_fractions is None:
+        threshold_fractions = [0.1, 0.2, 0.5, 0.8, 0.9]
+    
+    if len(data) < 2:
+        return {f'arrival_time_{int(f*100)}': -1.0 for f in threshold_fractions}
+    
+    # Calculate baseline and minimum
+    baseline = np.mean(data[:10]) if len(data) >= 10 else data[0]
+    pulse_min = np.min(data)
+    
+    # If no significant pulse detected, return -1 for all
+    if abs(baseline - pulse_min) < 0.01:  # Less than 10mV change
+        return {f'arrival_time_{int(f*100)}': -1.0 for f in threshold_fractions}
+    
+    arrival_times = {}
+    
+    # Find arrival time for each threshold
+    for frac in threshold_fractions:
+        threshold = baseline - frac * (baseline - pulse_min)
+        arrival_time = -1.0
+        
+        # Find first crossing on falling edge (signal going negative)
+        for i in range(len(data) - 1):
+            if data[i] >= threshold and data[i+1] < threshold:
+                # Linear interpolation for sub-sample precision
+                if data[i+1] != data[i]:  # Avoid division by zero
+                    frac_interp = (threshold - data[i]) / (data[i+1] - data[i])
+                    arrival_time = i + frac_interp
+                else:
+                    arrival_time = float(i)
+                break
+        
+        # Store with descriptive key
+        key = f'arrival_time_{int(frac*100)}'
+        arrival_times[key] = float(arrival_time)
+    
+    return arrival_times
+
+
 # =============================================================================
 # STATISTICS CALCULATION
 # =============================================================================
@@ -287,68 +345,19 @@ def calculate_summary_statistics(events: List[Dict]) -> Dict:
             summary[f"{key}_max"] = float(np.max(values))
     
     # Time and count statistics
-    time_values = [event['pulse_time'] for event in events]
-    total_time = max(time_values) - min(time_values) if time_values else 0
-    
-    # Separate signal and dark counts
-    signal_events = [e for e in events 
-                    if TRIGGER_CUT_MIN <= e.get('trigger_check', -999) <= TRIGGER_CUT_MAX]
-    dark_events = [e for e in events 
-                  if not (TRIGGER_CUT_MIN <= e.get('trigger_check', -999) <= TRIGGER_CUT_MAX)]
-    
-    signal_count = len(signal_events)
-    dark_count = len(dark_events)
+    time_values = [event['event_time'] for event in events]
+    total_time = max(time_values) - min(time_values) if time_values else 0    
     total_events = len(events)
-    
-    # Signal and dark pulse characteristics
-    if signal_events:
-        signal_ptp = [e['pulse_fall_range_ptp'] for e in signal_events if 'pulse_fall_range_ptp' in e]
-        if signal_ptp:
-            summary['signal_pulse_fall_range_ptp_mean'] = float(np.mean(signal_ptp))
-            summary['signal_pulse_fall_range_ptp_std'] = float(np.std(signal_ptp))
-            summary['signal_pulse_fall_range_ptp_min'] = float(np.min(signal_ptp))
-            summary['signal_pulse_fall_range_ptp_max'] = float(np.max(signal_ptp))
-    
-    if dark_events:
-        dark_ptp = [e['pulse_fall_range_ptp'] for e in dark_events if 'pulse_fall_range_ptp' in e]
-        if dark_ptp:
-            summary['dark_pulse_fall_range_ptp_mean'] = float(np.mean(dark_ptp))
-            summary['dark_pulse_fall_range_ptp_std'] = float(np.std(dark_ptp))
-            summary['dark_pulse_fall_range_ptp_min'] = float(np.min(dark_ptp))
-            summary['dark_pulse_fall_range_ptp_max'] = float(np.max(dark_ptp))
-    
+      
     # Calculate rates
-    count_rate = total_events / total_time if total_time > 0 else 0
-    signal_rate = signal_count / total_time if total_time > 0 else 0
-    dark_count_rate = dark_count / total_time if total_time > 0 else 0
-    
-    # Poisson errors
-    count_rate_error = np.sqrt(total_events) / total_time if total_time > 0 else 0
-    signal_rate_error = np.sqrt(signal_count) / total_time if total_time > 0 and signal_count > 0 else 0
-    dark_count_rate_error = np.sqrt(dark_count) / total_time if total_time > 0 and dark_count > 0 else 0
-    
-    # Efficiency and binomial error
-    efficiency = (signal_rate / SOURCE_RATE) if signal_rate > 0 else 0
-    
-    if total_time > 0 and 0 < efficiency < 1:
-        n_pulses = SOURCE_RATE * total_time
-        efficiency_error = np.sqrt(efficiency * (1 - efficiency) / n_pulses)
-    else:
-        efficiency_error = 0
-    
+    count_rate = total_events / total_time if total_time > 0 else 0 
+    count_rate_error = np.sqrt(total_events) / total_time if total_time > 0 else 0     
+   
     summary.update({
         'total_time': float(total_time),
         'total_events': int(total_events),
-        'signal_count': int(signal_count),
-        'dark_count': int(dark_count),
-        'efficiency': float(efficiency),
-        'efficiency_error': float(efficiency_error),
         'count_rate': float(count_rate),
         'count_rate_error': float(count_rate_error),
-        'signal_rate': float(signal_rate),
-        'signal_rate_error': float(signal_rate_error),
-        'dark_count_rate': float(dark_count_rate),
-        'dark_count_rate_error': float(dark_count_rate_error)
     })
     
     return summary
@@ -367,7 +376,7 @@ def process_tdms_file(filename: str, output_filename: str, args):
         # Extract metadata
         metadata = tdms_file.properties
         metadata_df = pd.DataFrame(metadata.items(), columns=['metaKey', 'metaValue'])
-        print(metadata_df)
+        debug_print(metadata_df)
         
         metadata_dict = {row['metaKey']: row['metaValue'] 
                         for _, row in metadata_df.iterrows()}
@@ -376,7 +385,7 @@ def process_tdms_file(filename: str, output_filename: str, args):
         
         # Check for ADC Readout Channels
         group_names = [group.name for group in tdms_file.groups()]
-        print(f"Groups: {group_names}")
+        debug_print(f"Groups: {group_names}")
         
         if 'ADC Readout Channels' not in group_names:
             print("Error: No ADC Readout Channels - signal too low or detector latched")
@@ -389,7 +398,7 @@ def process_tdms_file(filename: str, output_filename: str, args):
         chTime_total = tdms_file['ADC Readout Channels']['Time']
         
         totalEvents = int(len(chSig_total) / recordlength)
-        print(f"Total events: {totalEvents}")
+        debug_print(f"Total events: {totalEvents}")
         print(f"==========Start Processing {datetime.datetime.now()}==========")
         
         for event in range(totalEvents - 1):
@@ -411,7 +420,7 @@ def process_tdms_file(filename: str, output_filename: str, args):
                 event_display_2ch(chSig, chTrig, 'Waveform')
             
             analyze_single_event(chSig, chTrig, chTime, chTime_prev, 
-                               event, args.trigger_method)
+                               event, args.find_sync_method)
         
         print(f"==========End Processing {datetime.datetime.now()}==========")
         print(f"Processed {len(event_statistics)} events")
@@ -546,17 +555,6 @@ def save_analysis_results(output_filename: str, voltage: Optional[int],
     with open(output_filename, "w") as f:
         json.dump(final_analysis, f, indent=2)
     
-    print(f"\n==========Analysis Summary==========")
-    print(f"Total events: {final_analysis['total_events']}")
-    
-    if final_analysis['summary_statistics']:
-        print("\n--- Summary Statistics ---")
-        for key, value in final_analysis['summary_statistics'].items():
-            if isinstance(value, (int, float)):
-                print(f"{key}: {value:.6f}")
-    else:
-        print("No statistics available")
-    
     print(f"\nSaved to: {output_filename}")
 
 
@@ -574,7 +572,7 @@ def parse_arguments():
     parser.add_argument('--debug_report', '-b', action="store_true", help='Debug output')
     parser.add_argument('--display_report', '-p', action="store_true", help='Display waveforms')
     parser.add_argument('--subset', '-s', default=-1, type=int, help='Process first N events')
-    parser.add_argument('--trigger_method', default='spline', choices=['spline', 'simple'],
+    parser.add_argument('--find_sync_method', default='spline', choices=['spline', 'simple'],
                        help='Trigger calculation: spline (accurate) or simple (fast)')
     parser.add_argument('--save_single_event', '-e', default=-1, type=int, 
                        help='Save single event (by number) to JSON without full analysis')
@@ -611,9 +609,9 @@ def main():
     
     print(f"Found {len(tdms_files)} TDMS file(s) to process\n")
     
-    for in_filename in tdms_files:
+    for index, in_filename in enumerate(tdms_files):
         print("\n" + "="*60)
-        print(f"Processing: {in_filename}")
+        print(f"Processing: {in_filename} ({index+1}/{len(tdms_files)})")
         print("="*60)
         
         basename = os.path.basename(in_filename).replace('.tdms', '')
@@ -631,16 +629,16 @@ def main():
         
         # Full analysis mode
         output_filename = os.path.join(output_dir, basename + "_analysis.json")
-        print(f"Output: {output_dir}")
+        debug_print(f"Output: {output_dir}")
         
         voltage, current, resistance = extract_bias_parameters(basename)
         if voltage and current:
-            print(f"Bias: {voltage} mV, {current} uA, R={resistance:.2f} Ω")
+            debug_print(f"Bias: {voltage} mV, {current} uA, R={resistance:.2f} Ω")
         
         process_tdms_file(in_filename, output_filename, args)
         save_analysis_results(output_filename, voltage, current, resistance)
         
-        print(f"\n==========Completed: {in_filename}==========\n")
+        debug_print(f"\n==========Completed: {in_filename}==========\n")
 
 
 if __name__ == "__main__":

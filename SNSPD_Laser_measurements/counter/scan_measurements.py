@@ -101,9 +101,10 @@ def get_available_bias_voltages(measurement_path):
                     with open(data_file, 'r') as f:
                         for line in f:
                             line = line.strip()
-                            if not line or line.startswith('#') or line.startswith('bias'):
+                            if not line or line.startswith('#') or line.startswith('target_voltage'):
                                 continue
                             parts = line.split('\t')
+                            print(parts)
                             if len(parts) >= 2:
                                 try:
                                     # Convert voltage to mV (data is in volts)

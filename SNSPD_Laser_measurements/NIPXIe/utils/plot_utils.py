@@ -161,65 +161,16 @@ def read_analysis_files(input_dir, pattern='*_analysis.json', recursive=True):
         try:
             with open(filepath, 'r') as f:
                 analysis = json.load(f)
-            
-            # Handle both Stage 1 (*_analysis.json) and Stage 2 (statistics_*.json) formats
-            summary = analysis.get('summary_statistics', analysis.get('summary_from_stage1', {}))
-            
-            # Extract rates from summary
-            count_rate = summary.get('count_rate', 0)
-            signal_rate = summary.get('signal_rate', 0)
-            dark_count_rate = summary.get('dark_count_rate', 0)
-            efficiency = summary.get('efficiency', 0)
-            resistance = summary.get('resistance_ohm', None)
-            
-            # Calculate errors from event-by-event data
-            events = analysis.get('event_by_event_data', [])
-            calculated_errors = calculate_errors_from_events(events)
-            
-            count_rate_error = calculated_errors['count_rate_error']
-            signal_rate_error = calculated_errors['signal_rate_error']
-            dark_count_rate_error = calculated_errors['dark_count_rate_error']
-            
-            # Calculate efficiency error from binomial statistics
-            if efficiency > 0 and efficiency < 1 and events:
-                time_values = [e['pulse_time'] for e in events if 'pulse_time' in e]
-                if time_values:
-                    total_time = max(time_values) - min(time_values)
-                    n_pulses = SOURCE_RATE * total_time
-                    efficiency_error = np.sqrt(efficiency * (1 - efficiency) / n_pulses) if n_pulses > 0 else 0
-                else:
-                    efficiency_error = 0
-            else:
-                efficiency_error = 0
-            
-            # Extract pulse characteristics
-            pulse_fall_range_ptp_mean = summary.get('pulse_fall_range_ptp_mean', None)
-            pulse_fall_range_ptp_std = summary.get('pulse_fall_range_ptp_std', None)
-            
-            # Extract rise amplitude characteristics
-            rise_amplitude_mean = summary.get('rise_amplitude_mean', None)
-            rise_amplitude_std = summary.get('rise_amplitude_std', None)
-            
-            data.append({
+            entry = {
                 'bias_voltage': bias_voltage,
                 'power': power,
                 'timestamp': timestamp,
-                'count_rate': count_rate,
-                'signal_rate': signal_rate,
-                'dark_count_rate': dark_count_rate,
-                'efficiency': efficiency,
-                'count_rate_error': count_rate_error,
-                'signal_rate_error': signal_rate_error,
-                'dark_count_rate_error': dark_count_rate_error,
-                'efficiency_error': efficiency_error,
-                'resistance': resistance,
-                'pulse_fall_range_ptp_mean': pulse_fall_range_ptp_mean,
-                'pulse_fall_range_ptp_std': pulse_fall_range_ptp_std,
-                'rise_amplitude_mean': rise_amplitude_mean,
-                'rise_amplitude_std': rise_amplitude_std,
                 'filename': filename
-            })
-            
+            }
+            # Add all variable_statistics to entry
+            results = analysis.get('variable_statistics', {})
+            entry.update(results)
+            data.append(entry)
         except Exception as e:
             print(f"Error reading {filepath}: {e}")
             continue
@@ -280,7 +231,6 @@ def print_data_summary(data):
     for d in data:
         power_str = f"{d['power']} nW" if d['power'] is not None else "Unknown power"
         print(f"  {d['bias_voltage']} mV, {power_str}: "
-              f"count_rate={d['count_rate']:.3f} Hz, "
-              f"signal_rate={d['signal_rate']:.3f} Hz, "
+              f"signal_count_rate={d['signal_count_rate']:.3f} Hz, "
               f"dark_count_rate={d['dark_count_rate']:.3f} Hz, "
               f"efficiency={d['efficiency']:.3e}")
