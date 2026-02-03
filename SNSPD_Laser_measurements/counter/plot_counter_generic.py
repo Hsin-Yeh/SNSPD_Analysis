@@ -696,7 +696,8 @@ def main():
             measurement_name = data_dir.name
     
     # Create output directory based on measurement name
-    output_dir = Path('output') / measurement_name
+    output_root = Path('~/SNSPD_analyzed_output/counter').expanduser()
+    output_dir = output_root / measurement_name
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Create three separate figures
