@@ -1,29 +1,28 @@
 #!/usr/bin/env python3
 """
-Plot dark count rate fluctuations over time
-Shows how dark count rates vary across different bias voltages and measurement times
+Plot dark count rate fluctuations over time for a target bias voltage.
+Uses filename timestamps as start times and per-sample totalize time from files
+to build a continuous time series across multiple measurements.
 """
 
-import os
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
+import argparse
 
-def parse_filename(filename):
-    """Extract power and timestamp from filename"""
-    # Example: SMSPD_3_2-7_0nW_20251212_1749.txt
-    match = re.search(r'(\d+)nW_(\d{8}_\d{4})\.txt', filename)
+def parse_filename_timestamp(filename):
+    """Extract timestamp from filename. Example: *_20251212_1749.txt"""
+    match = re.search(r'(\d{8}_\d{4})\.txt', filename)
     if match:
-        power_nw = int(match.group(1))
-        timestamp_str = match.group(2)
-        timestamp = datetime.strptime(timestamp_str, '%Y%m%d_%H%M')
-        return power_nw, timestamp
-    return None, None
+        timestamp_str = match.group(1)
+        return datetime.strptime(timestamp_str, '%Y%m%d_%H%M')
+    return None
 
 def read_counter_file(filepath):
-    """Read counter data file and extract bias voltage and count rates"""
+    """Read counter data file and extract bias voltage and per-sample count rates."""
     with open(filepath, 'r') as f:
         lines = f.readlines()
     
@@ -33,15 +32,23 @@ def read_counter_file(filepath):
     bias_voltages = []
     count_rates = []
     count_stds = []
+    time_totalize = None
     
     for line in data_lines:
-        parts = line.strip().split('\t')
+        parts = line.strip().split()
         if len(parts) < 7:
             continue
             
         bias_voltage = float(parts[0])
+        # Integration time per measurement (column index 4)
+        try:
+            time_totalize = float(parts[4])
+        except (ValueError, IndexError):
+            time_totalize = None
         # measurements start from index 6 (7th column)
         measurements = [float(x) for x in parts[6:]]
+        if time_totalize and time_totalize > 0:
+            measurements = [m / time_totalize for m in measurements]
         
         # Calculate mean and std of count rate
         mean_count_rate = np.mean(measurements)
@@ -51,126 +58,146 @@ def read_counter_file(filepath):
         count_rates.append(mean_count_rate)
         count_stds.append(std_count_rate)
     
-    return np.array(bias_voltages), np.array(count_rates), np.array(count_stds)
+    return np.array(bias_voltages), np.array(count_rates), np.array(count_stds), time_totalize
+
+
+def extract_time_series_for_bias(filepath, target_bias_mv, bias_tolerance_mv=1.0):
+    """Extract per-sample time series for the closest bias voltage."""
+    with open(filepath, 'r') as f:
+        lines = f.readlines()
+    
+    data_lines = lines[1:]
+    closest_series = None
+    closest_bias = None
+    closest_delta = None
+    time_totalize = None
+    
+    for line in data_lines:
+        parts = line.strip().split()
+        if len(parts) < 7:
+            continue
+        
+        try:
+            bias_voltage = float(parts[0])
+            time_totalize = float(parts[4])
+        except (ValueError, IndexError):
+            continue
+        
+        measurements = np.array([float(x) for x in parts[6:]])
+        if time_totalize > 0:
+            rates = measurements / time_totalize
+        else:
+            rates = measurements
+        
+        bias_mv = bias_voltage * 1000
+        delta = abs(bias_mv - target_bias_mv)
+        if closest_delta is None or delta < closest_delta:
+            closest_delta = delta
+            closest_series = rates
+            closest_bias = bias_mv
+    
+    if closest_series is None:
+        return None
+    
+    if closest_delta is not None and closest_delta > bias_tolerance_mv:
+        print(f"  Warning: Closest bias is {closest_bias:.2f} mV (Δ={closest_delta:.2f} mV)")
+    
+    return {
+        'bias_mv': closest_bias,
+        'rates': closest_series,
+        'time_totalize': time_totalize
+    }
 
 def main():
-    # Data directory
-    data_dir = Path('/Users/ya/Documents/Projects/SNSPD/SNSPD_data/SMSPD_3/Counter_sweep_power_3')
+    parser = argparse.ArgumentParser(description='Plot dark count time series at a target bias voltage')
+    parser.add_argument('data_dir', type=str, help='Path to dark count folder (e.g., /.../2-7/6K/0nW)')
+    parser.add_argument('--bias-mv', type=float, required=True, help='Target bias voltage in mV')
+    parser.add_argument('--output', type=str, default='output/dark_count_time_series.png',
+                        help='Output plot file path')
+    parser.add_argument('--bias-tolerance-mv', type=float, default=1.0,
+                        help='Allowed bias voltage mismatch in mV (default: 1.0)')
+    args = parser.parse_args()
     
-    # Find all text files
+    data_dir = Path(args.data_dir)
+    if not data_dir.exists():
+        print(f"Error: Data directory not found: {data_dir}")
+        return 1
+    
+    # Find all text files in the dark count folder
     all_files = list(data_dir.rglob('*.txt'))
     
-    # Find dark count files (0nW)
+    # Extract timestamps
     dark_files = []
-    
     for filepath in all_files:
-        power, timestamp = parse_filename(filepath.name)
-        if power is not None and timestamp is not None and power == 0:
+        timestamp = parse_filename_timestamp(filepath.name)
+        if timestamp is not None:
             dark_files.append((filepath, timestamp))
     
     # Sort by timestamp
     dark_files.sort(key=lambda x: x[1])
     
     print(f"Found {len(dark_files)} dark count files")
-    
     if len(dark_files) == 0:
         print("No dark count files found!")
-        return
+        return 1
     
-    # Create output directory
-    output_dir = Path('output/SMSPD_3')
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Build time series
+    time_points = []
+    rate_points = []
     
-    # Create figure with subplots
-    fig, axes = plt.subplots(2, 1, figsize=(14, 10))
-    
-    # Plot 1: Dark count rate vs bias voltage for each measurement time
-    colors = plt.cm.plasma(np.linspace(0, 1, len(dark_files)))
-    
-    for idx, (filepath, timestamp) in enumerate(dark_files):
-        print(f"Processing: {filepath.name} at {timestamp.strftime('%H:%M')}")
+    for filepath, timestamp in dark_files:
+        print(f"Processing: {filepath.name} at {timestamp.strftime('%Y-%m-%d %H:%M')}")
+        series = extract_time_series_for_bias(filepath, args.bias_mv, args.bias_tolerance_mv)
+        if series is None:
+            continue
         
-        bias_voltages, count_rates, count_stds = read_counter_file(filepath)
+        rates = series['rates']
+        time_totalize = series['time_totalize']
+        if time_totalize is None or time_totalize <= 0:
+            print(f"  Warning: Missing/invalid totalize time in {filepath.name}, skipping")
+            continue
         
-        time_label = timestamp.strftime('%H:%M')
-        axes[0].errorbar(bias_voltages * 1000, count_rates, yerr=count_stds,
-                        fmt='o-', label=time_label, color=colors[idx],
-                        linewidth=2, markersize=5, alpha=0.7, capsize=3)
+        # Build timestamps for each sample
+        for i, rate in enumerate(rates):
+            sample_time = timestamp + timedelta(seconds=time_totalize * i)
+            time_points.append(sample_time)
+            rate_points.append(rate)
     
-    axes[0].set_xlabel('Bias Voltage (mV)', fontsize=12)
-    axes[0].set_ylabel('Dark Count Rate (counts/s)', fontsize=12)
-    axes[0].set_title('Dark Count Rate vs Bias Voltage at Different Times', fontsize=14)
-    axes[0].legend(fontsize=10, loc='best', title='Time')
-    axes[0].grid(True, alpha=0.3)
+    if not time_points:
+        print("No valid data points collected.")
+        return 1
     
-    # Plot 2: Dark count rate fluctuations over time at selected bias voltages
-    # Read first file to get available bias voltages
-    first_bias, _, _ = read_counter_file(dark_files[0][0])
-    
-    # Select a few representative bias voltages
-    num_bias_to_plot = min(5, len(first_bias))
-    bias_indices = np.linspace(0, len(first_bias)-1, num_bias_to_plot, dtype=int)
-    selected_biases = first_bias[bias_indices]
-    
-    colors2 = plt.cm.viridis(np.linspace(0, 1, num_bias_to_plot))
-    
-    for bias_idx, bias_val in zip(bias_indices, selected_biases):
-        timestamps = []
-        rates_at_bias = []
-        stds_at_bias = []
-        
-        for filepath, timestamp in dark_files:
-            bias_voltages, count_rates, count_stds = read_counter_file(filepath)
-            
-            # Find the closest bias voltage
-            closest_idx = np.argmin(np.abs(bias_voltages - bias_val))
-            
-            timestamps.append(timestamp)
-            rates_at_bias.append(count_rates[closest_idx])
-            stds_at_bias.append(count_stds[closest_idx])
-        
-        # Convert timestamps to minutes from first measurement
-        time_minutes = [(t - timestamps[0]).total_seconds() / 60 for t in timestamps]
-        
-        axes[1].errorbar(time_minutes, rates_at_bias, yerr=stds_at_bias,
-                        fmt='o-', label=f'{bias_val*1000:.1f} mV',
-                        color=colors2[bias_idx % num_bias_to_plot],
-                        linewidth=2, markersize=6, alpha=0.7, capsize=3)
-    
-    axes[1].set_xlabel('Time (minutes from first measurement)', fontsize=12)
-    axes[1].set_ylabel('Dark Count Rate (counts/s)', fontsize=12)
-    axes[1].set_title('Dark Count Rate Fluctuations Over Time', fontsize=14)
-    axes[1].legend(fontsize=10, loc='best', title='Bias Voltage')
-    axes[1].grid(True, alpha=0.3)
-    
-    plt.tight_layout()
+    # Plot with absolute timestamps
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.plot(time_points, rate_points, 'o', markersize=4, alpha=0.7)
+    ax.set_xlabel('Time (absolute)', fontsize=12)
+    ax.set_ylabel('Dark Count Rate (counts/s)', fontsize=12)
+    ax.set_title(f'Dark Count Fluctuations at {args.bias_mv:.1f} mV', fontsize=14, weight='bold')
+    ax.set_ylim(0, 4000)
+    ax.grid(True, alpha=0.3)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+    fig.autofmt_xdate()
     
     # Save plot
-    output_file = output_dir / 'dark_count_fluctuations.png'
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"\nPlot saved to: {output_file}")
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=300, bbox_inches='tight')
+    print(f"\nPlot saved to: {output_path}")
     
-    # Print statistics
+    # Print summary
+    rates = np.array(rate_points)
     print("\n" + "="*60)
-    print("Dark Count Statistics Summary")
+    print(f"Dark Count Summary at {args.bias_mv:.1f} mV")
     print("="*60)
-    
-    for bias_idx, bias_val in zip(bias_indices, selected_biases):
-        rates = []
-        for filepath, timestamp in dark_files:
-            bias_voltages, count_rates, _ = read_counter_file(filepath)
-            closest_idx = np.argmin(np.abs(bias_voltages - bias_val))
-            rates.append(count_rates[closest_idx])
-        
-        rates = np.array(rates)
-        print(f"\nBias: {bias_val*1000:.1f} mV")
-        print(f"  Mean: {np.mean(rates):.1f} counts/s")
-        print(f"  Std:  {np.std(rates):.1f} counts/s")
-        print(f"  Min:  {np.min(rates):.1f} counts/s")
-        print(f"  Max:  {np.max(rates):.1f} counts/s")
-        print(f"  Variation: {(np.std(rates)/np.mean(rates)*100):.2f}%")
+    print(f"Mean: {np.mean(rates):.1f} counts/s")
+    print(f"Std:  {np.std(rates):.1f} counts/s")
+    print(f"Min:  {np.min(rates):.1f} counts/s")
+    print(f"Max:  {np.max(rates):.1f} counts/s")
+    print(f"Variation: {(np.std(rates)/np.mean(rates)*100):.2f}%")
     
     plt.show()
+    return 0
 
 if __name__ == "__main__":
-    main()
+    exit(main())

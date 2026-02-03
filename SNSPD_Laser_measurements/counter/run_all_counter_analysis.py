@@ -8,33 +8,24 @@ import sys
 from pathlib import Path
 import json
 
-def load_config(config_path='counter_analysis_config.json'):
-    """Load the counter analysis configuration."""
-    with open(config_path, 'r') as f:
-        return json.load(f)
 
-def run_analysis(script_name, data_folder, measurement_name, bias_voltages, powers='all', dark_subtract_mode='closest', linear_fit='false', fit_range='all', fit_line_range='all', loglog='false', yaxis_scale='auto'):
-    """Run a counter analysis script and return the result."""
-    # Convert bias_voltages to string format
-    if isinstance(bias_voltages, str):
-        bias_str = bias_voltages
-    elif isinstance(bias_voltages, list):
-        bias_str = ','.join(map(str, bias_voltages))
-    else:
-        bias_str = str(bias_voltages)
-    
-    # Convert powers to string format
-    if isinstance(powers, str):
-        powers_str = powers
-    elif isinstance(powers, list):
-        powers_str = ','.join(map(str, powers))
-    else:
-        powers_str = str(powers)
-    
+def normalize_list_arg(value):
+    """Convert list-like or string arguments into CLI-friendly strings."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return ','.join(map(str, value))
+    return str(value)
+
+
+def build_command(script_name, data_folder, measurement_name, bias_voltages, powers='all',
+                 dark_subtract_mode='closest', linear_fit='false', fit_range='all',
+                 fit_line_range='all', loglog='false', yaxis_scale='auto'):
+    """Build the CLI command for a counter analysis run."""
     cmd = [
         sys.executable, script_name, data_folder,
-        '--bias', bias_str,
-        '--powers', powers_str
+        '--bias', normalize_list_arg(bias_voltages),
+        '--powers', normalize_list_arg(powers)
     ]
     if dark_subtract_mode:
         cmd.extend(['--dark-subtract-mode', str(dark_subtract_mode)])
@@ -50,17 +41,50 @@ def run_analysis(script_name, data_folder, measurement_name, bias_voltages, powe
         cmd.extend(['--yaxis-scale', str(yaxis_scale)])
     if measurement_name:
         cmd.extend(['--measurement-name', str(measurement_name)])
-    
+    return cmd
+
+def load_config(config_path='counter_analysis_config.json'):
+    """Load the counter analysis configuration."""
+    with open(config_path, 'r') as f:
+        return json.load(f)
+
+def run_analysis(script_name, data_folder, measurement_name, bias_voltages, powers='all',
+                dark_subtract_mode='closest', linear_fit='false', fit_range='all',
+                fit_line_range='all', loglog='false', yaxis_scale='auto'):
+    """Run a counter analysis script and return the result."""
+    cmd = build_command(
+        script_name, data_folder, measurement_name, bias_voltages, powers,
+        dark_subtract_mode, linear_fit, fit_range, fit_line_range, loglog, yaxis_scale
+    )
+
     print(f"\nRunning: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
-    
+
     if result.returncode != 0:
         print(f"Error running {script_name}:")
         print(result.stderr)
         return None
-    
+
     print(result.stdout)
     return result.returncode == 0
+
+
+def print_config_summary(config):
+    """Print a summary of the current configuration."""
+    print("="*80)
+    print("Configuration loaded from counter_analysis_config.json")
+    print("="*80)
+    for name, settings in config['measurements'].items():
+        enabled_status = "✓" if settings.get('enabled', 'true').lower() == 'true' else "✗"
+        print(f"\n[{enabled_status}] {name}:")
+        print(f"  Bias voltages: {settings['bias_voltages']} mV")
+        print(f"  Powers: {settings.get('powers', 'all')} nW")
+        print(f"  Dark subtract mode: {settings.get('dark_subtract_mode', 'closest')}")
+        print(f"  Linear fit: {settings.get('linear_fit', 'false')}")
+        print(f"  Fit range: {settings.get('fit_range', 'all')}")
+        print(f"  Fit line range: {settings.get('fit_line_range', 'all')}")
+        print(f"  Log-log scale: {settings.get('loglog', 'false')}")
+        print(f"  Description: {settings['description']}")
 
 def main():
     """Run all counter analyses from config file."""
@@ -97,20 +121,7 @@ def main():
         })
     
     # Print configuration summary
-    print("="*80)
-    print("Configuration loaded from counter_analysis_config.json")
-    print("="*80)
-    for name, settings in config['measurements'].items():
-        enabled_status = "✓" if settings.get('enabled', 'true').lower() == 'true' else "✗"
-        print(f"\n[{enabled_status}] {name}:")
-        print(f"  Bias voltages: {settings['bias_voltages']} mV")
-        print(f"  Powers: {settings.get('powers', 'all')} nW")
-        print(f"  Dark subtract mode: {settings.get('dark_subtract_mode', 'closest')}")
-        print(f"  Linear fit: {settings.get('linear_fit', 'false')}")
-        print(f"  Fit range: {settings.get('fit_range', 'all')}")
-        print(f"  Fit line range: {settings.get('fit_line_range', 'all')}")
-        print(f"  Log-log scale: {settings.get('loglog', 'false')}")
-        print(f"  Description: {settings['description']}")
+    print_config_summary(config)
     
     print("="*80)
     print("Running Counter Data Analysis on All Measurement Folders")

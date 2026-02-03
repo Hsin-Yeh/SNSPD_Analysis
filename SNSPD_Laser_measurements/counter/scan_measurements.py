@@ -80,10 +80,31 @@ def get_power_levels(measurement_path):
     return sorted(powers)
 
 
+def get_measurement_folder_mtime(measurement_path):
+    """
+    Fast check for new files using folder modification times.
+    Returns the latest mtime among the measurement path and its power folders.
+    """
+    path = Path(measurement_path)
+    if not path.exists():
+        return 0.0
+    
+    latest_mtime = path.stat().st_mtime
+    try:
+        for item in path.iterdir():
+            if item.is_dir() and item.name.endswith('nW'):
+                latest_mtime = max(latest_mtime, item.stat().st_mtime)
+    except Exception:
+        pass
+    
+    return latest_mtime
+
+
 def get_available_bias_voltages(measurement_path):
     """
     Scan data files to find all available bias voltages.
     Returns a sorted list of unique bias voltages found in the data files.
+    Uses target_voltage column from the new file format.
     """
     path = Path(measurement_path)
     if not path.exists():
@@ -97,18 +118,30 @@ def get_available_bias_voltages(measurement_path):
             # Find .txt files in this power folder
             for data_file in power_folder.glob('*.txt'):
                 try:
-                    # Read the file and extract bias voltages from first column
-                    with open(data_file, 'r') as f:
+                    # Read the file and extract bias voltages from target_voltage column
+                    with open(data_file, 'r', encoding='utf-8', errors='ignore') as f:
+                        header_line = f.readline().strip()
+                        if not header_line:
+                            continue
+                        
+                        # Parse header to find target_voltage column
+                        headers = header_line.split()
+                        try:
+                            target_voltage_col = headers.index('target_voltage')
+                        except ValueError:
+                            # Fall back to first column if header not found
+                            target_voltage_col = 0
+                        
+                        # Read data lines
                         for line in f:
                             line = line.strip()
-                            if not line or line.startswith('#') or line.startswith('target_voltage'):
+                            if not line or line.startswith('#'):
                                 continue
-                            parts = line.split('\t')
-                            print(parts)
-                            if len(parts) >= 2:
+                            parts = line.split()
+                            if len(parts) > target_voltage_col:
                                 try:
                                     # Convert voltage to mV (data is in volts)
-                                    bias_volts = float(parts[0])
+                                    bias_volts = float(parts[target_voltage_col])
                                     bias_mv = int(round(bias_volts * 1000))
                                     if bias_mv > 0:  # Skip 0 values
                                         bias_voltages.add(bias_mv)
@@ -117,7 +150,7 @@ def get_available_bias_voltages(measurement_path):
                     # Only need to read one file per folder
                     if bias_voltages:
                         break
-                except Exception:
+                except Exception as e:
                     continue
             # If we found some bias voltages, we can stop
             if len(bias_voltages) > 10:  # Should have many bias points
@@ -185,6 +218,22 @@ def find_new_measurements(config):
     return sorted(new_measurements), found
 
 
+def find_updated_measurements(config):
+    """
+    Check existing measurements for newly added files using folder mtimes.
+    Returns a list of (name, current_mtime) for measurements with updates.
+    """
+    updated = []
+    base_path = Path(config['base_path'])
+    for name, settings in config['measurements'].items():
+        full_path = base_path / settings['folder']
+        current_mtime = get_measurement_folder_mtime(full_path)
+        stored_mtime = settings.get('_last_scan_mtime', 0.0)
+        if current_mtime > stored_mtime:
+            updated.append((name, current_mtime))
+    return updated
+
+
 def generate_config_template(measurement_name, measurement_path):
     """Generate a config template for a new measurement."""
     powers = get_power_levels(measurement_path)
@@ -205,7 +254,8 @@ def generate_config_template(measurement_name, measurement_path):
         "loglog": "false",  # Default to linear scale
         "description": f"Auto-detected: {len(powers)} power folders",
         "_available_bias_voltages": available_bias,  # Include all available for reference
-        "_available_powers": signal_powers
+        "_available_powers": signal_powers,
+        "_last_scan_mtime": get_measurement_folder_mtime(measurement_path)
     }
     
     return template
@@ -285,6 +335,18 @@ def main():
     # Scan for new measurements if requested
     if args.scan or args.add_new:
         new_measurements, all_found = find_new_measurements(config)
+        updated_measurements = find_updated_measurements(config)
+        
+        if updated_measurements:
+            print("\n" + "="*70)
+            print("UPDATED MEASUREMENTS DETECTED")
+            print("="*70 + "\n")
+            for name, current_mtime in updated_measurements:
+                print(f"Measurement: {name}")
+                print("  New files detected in existing folders (folder mtime changed)")
+                print(f"  Latest change: {current_mtime:.0f}")
+                print()
+            print("="*70 + "\n")
         
         if new_measurements:
             print("\n" + "="*70)
@@ -305,14 +367,18 @@ def main():
                 new_configs[name] = template
             
             if args.add_new:
-                # Add to config
+                # Add to config at the top (insert new measurements before existing ones)
+                new_measurements_dict = {}
                 for name, template in new_configs.items():
-                    config['measurements'][name] = template
+                    new_measurements_dict[name] = template
+                # Add existing measurements after new ones
+                new_measurements_dict.update(config['measurements'])
+                config['measurements'] = new_measurements_dict
                 
                 # Save updated config with compact formatting
                 save_config_compact(config, config_path)
                 
-                print(f"\n✓ Added {len(new_configs)} new measurement(s) to {config_path}")
+                print(f"\n✓ Added {len(new_configs)} new measurement(s) to the top of {config_path}")
                 print("  Please review and adjust bias_voltages and remove_lowest_points as needed.")
             else:
                 print("\nTo add these measurements to the config, run with --add-new flag")
@@ -320,6 +386,19 @@ def main():
             print("="*70 + "\n")
         else:
             print("\n✓ No new measurements found. Config is up to date.\n")
+        
+        # Update metadata for existing measurements when add-new is used
+        if args.add_new and updated_measurements:
+            base_path = Path(config['base_path'])
+            for name, _ in updated_measurements:
+                full_path = base_path / config['measurements'][name]['folder']
+                powers = get_power_levels(full_path)
+                available_bias = get_available_bias_voltages(full_path)
+                signal_powers = [p for p in powers if p != 0]
+                config['measurements'][name]['_available_bias_voltages'] = available_bias
+                config['measurements'][name]['_available_powers'] = signal_powers
+                config['measurements'][name]['_last_scan_mtime'] = get_measurement_folder_mtime(full_path)
+            save_config_compact(config, config_path)
     
     return 0
 
