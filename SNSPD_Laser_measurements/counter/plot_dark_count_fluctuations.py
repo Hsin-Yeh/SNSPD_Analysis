@@ -35,72 +35,75 @@ def read_counter_file(filepath):
     time_totalize = None
     
     for line in data_lines:
-        parts = line.strip().split()
-        if len(parts) < 7:
+        parts = line.strip().split('\t')
+        if len(parts) < 8:
             continue
             
-        bias_voltage = float(parts[0])
-        # Integration time per measurement (column index 4)
         try:
-            time_totalize = float(parts[4])
+            target_voltage = float(parts[0])
+            time_totalize = float(parts[5])
+            # measurements start from index 7 (8th column) after sample_count
+            measurements = np.array([float(x) for x in parts[7:]])
+            # Divide each measurement by time_totalize to get counts/s
+            rates = measurements / time_totalize
         except (ValueError, IndexError):
-            time_totalize = None
-        # measurements start from index 6 (7th column)
-        measurements = [float(x) for x in parts[6:]]
-        if time_totalize and time_totalize > 0:
-            measurements = [m / time_totalize for m in measurements]
+            continue
         
         # Calculate mean and std of count rate
-        mean_count_rate = np.mean(measurements)
-        std_count_rate = np.std(measurements)
+        mean_count_rate = np.mean(rates)
+        std_count_rate = np.std(rates)
         
-        bias_voltages.append(bias_voltage)
+        bias_voltages.append(target_voltage)
         count_rates.append(mean_count_rate)
         count_stds.append(std_count_rate)
     
     return np.array(bias_voltages), np.array(count_rates), np.array(count_stds), time_totalize
 
 
-def extract_time_series_for_bias(filepath, target_bias_mv, bias_tolerance_mv=1.0):
-    """Extract per-sample time series for the closest bias voltage."""
+def extract_time_series_for_bias(filepath, target_bias_mv, bias_tolerance_mv=1.0, exact_only=False):
+    """Extract per-sample time series for the requested bias voltage within tolerance.
+    
+    If exact_only=True, only return data if exact match found within tolerance.
+    If exact_only=False, return closest match and warn if outside tolerance.
+    """
     with open(filepath, 'r') as f:
         lines = f.readlines()
     
     data_lines = lines[1:]
-    closest_series = None
-    closest_bias = None
-    closest_delta = None
-    time_totalize = None
+    candidates = []  # List of (delta, bias_mv, rates, time_totalize)
     
     for line in data_lines:
-        parts = line.strip().split()
-        if len(parts) < 7:
+        parts = line.strip().split('\t')
+        if len(parts) < 8:
             continue
         
         try:
-            bias_voltage = float(parts[0])
-            time_totalize = float(parts[4])
+            target_voltage = float(parts[0])
+            time_totalize = float(parts[5])
+            # measurements start from index 7
+            measurements = np.array([float(x) for x in parts[7:]])
+            # Convert to count rates by dividing by time_totalize (time per measurement)
+            rates = measurements / time_totalize
         except (ValueError, IndexError):
             continue
         
-        measurements = np.array([float(x) for x in parts[6:]])
-        if time_totalize > 0:
-            rates = measurements / time_totalize
-        else:
-            rates = measurements
-        
-        bias_mv = bias_voltage * 1000
+        bias_mv = target_voltage * 1000
         delta = abs(bias_mv - target_bias_mv)
-        if closest_delta is None or delta < closest_delta:
-            closest_delta = delta
-            closest_series = rates
-            closest_bias = bias_mv
+        candidates.append((delta, bias_mv, rates, time_totalize))
     
-    if closest_series is None:
+    if not candidates:
         return None
     
-    if closest_delta is not None and closest_delta > bias_tolerance_mv:
-        print(f"  Warning: Closest bias is {closest_bias:.2f} mV (Δ={closest_delta:.2f} mV)")
+    # Sort by delta (closest first)
+    candidates.sort(key=lambda x: x[0])
+    delta, closest_bias, closest_series, time_totalize = candidates[0]
+    
+    # If exact_only, skip files that don't have exact match within tolerance
+    if exact_only and delta > bias_tolerance_mv:
+        return None
+    
+    if delta > bias_tolerance_mv:
+        print(f"  Warning: No data at {target_bias_mv:.1f} mV. Closest is {closest_bias:.2f} mV (Δ={delta:.2f} mV, exceeds {bias_tolerance_mv:.1f} mV tolerance)")
     
     return {
         'bias_mv': closest_bias,
@@ -116,7 +119,10 @@ def main():
                         help='Output plot file path')
     parser.add_argument('--bias-tolerance-mv', type=float, default=1.0,
                         help='Allowed bias voltage mismatch in mV (default: 1.0)')
+    parser.add_argument('--allow-fallback', action='store_false', dest='exact_only',
+                        help='Allow falling back to closest bias if exact match not found (default: only use exact matches)')
     args = parser.parse_args()
+    args.exact_only = True  # Set default to True (exact matching only)
     
     data_dir = Path(args.data_dir)
     if not data_dir.exists():
@@ -147,17 +153,20 @@ def main():
     
     for filepath, timestamp in dark_files:
         print(f"Processing: {filepath.name} at {timestamp.strftime('%Y-%m-%d %H:%M')}")
-        series = extract_time_series_for_bias(filepath, args.bias_mv, args.bias_tolerance_mv)
+        series = extract_time_series_for_bias(filepath, args.bias_mv, args.bias_tolerance_mv, args.exact_only)
         if series is None:
+            if args.exact_only:
+                print(f"  Skipped: No data at {args.bias_mv:.1f} mV")
             continue
         
         rates = series['rates']
         time_totalize = series['time_totalize']
         if time_totalize is None or time_totalize <= 0:
-            print(f"  Warning: Missing/invalid totalize time in {filepath.name}, skipping")
+            print(f"  Warning: Missing/invalid time_totalize in {filepath.name}, skipping")
             continue
         
         # Build timestamps for each sample
+        # time_totalize is the duration of each measurement
         for i, rate in enumerate(rates):
             sample_time = timestamp + timedelta(seconds=time_totalize * i)
             time_points.append(sample_time)
@@ -173,7 +182,6 @@ def main():
     ax.set_xlabel('Time (absolute)', fontsize=12)
     ax.set_ylabel('Dark Count Rate (counts/s)', fontsize=12)
     ax.set_title(f'Dark Count Fluctuations at {args.bias_mv:.1f} mV', fontsize=14, weight='bold')
-    ax.set_ylim(0, 4000)
     ax.grid(True, alpha=0.3)
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
     fig.autofmt_xdate()

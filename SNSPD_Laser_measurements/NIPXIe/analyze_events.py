@@ -1,13 +1,3 @@
-# --- Custom selection functions for analysis variables ---
-def is_true_laser_sync(event):
-    # Check both possible field names for laser sync timing
-    sync_val = event.get('laser_sync_arrival', event.get('laser_sync_time', 0))
-    return 194 < sync_val < 203
-
-def is_dark_laser_sync(event):
-    # Check both possible field names for laser sync timing
-    sync_val = event.get('laser_sync_arrival', event.get('laser_sync_time', 0))
-    return sync_val <= 194 or sync_val >= 203
 #!/usr/bin/env python3
 """
 Stage 2 Analysis: Statistical analysis of event-by-event JSON data
@@ -34,6 +24,27 @@ from scipy.optimize import curve_fit
 from scipy.stats import norm
 from datetime import datetime
 import shutil
+
+# =============================================================================
+# CONFIGURATION: Laser sync timing window for signal classification
+# =============================================================================
+LASER_SYNC_LOWER_LIMIT = 36  # Lower bound for true signal events
+LASER_SYNC_UPPER_LIMIT = 41  # Upper bound for true signal events
+
+# --- Custom selection functions for analysis variables ---
+def is_true_laser_sync(event):
+    # Check both possible field names for laser sync timing
+    sync_val = event.get('laser_sync_arrival', event.get('laser_sync_time', 0))
+    return LASER_SYNC_LOWER_LIMIT < sync_val < LASER_SYNC_UPPER_LIMIT
+
+def is_dark_laser_sync(event):
+    # Check both possible field names for laser sync timing
+    sync_val = event.get('laser_sync_arrival', event.get('laser_sync_time', 0))
+    return sync_val <= LASER_SYNC_LOWER_LIMIT or sync_val >= LASER_SYNC_UPPER_LIMIT
+
+# =============================================================================
+# COMMAND LINE ARGUMENT PARSER
+# =============================================================================
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(
@@ -367,7 +378,7 @@ def get_analysis_config():
     analysis_variables = [
         {
             'name': 'True_laser_sync_time',
-            'variable': 'laser_sync_time',
+            'variable': 'laser_sync_arrival',
             'bins': 200,
             'xlim': [197, 200],
             'selection': is_true_laser_sync,
@@ -377,12 +388,12 @@ def get_analysis_config():
         },
         {
             'name': 'Dark_laser_sync_time',
-            'variable': 'laser_sync_time',
+            'variable': 'laser_sync_arrival',
             'bins': 200,
             'xlim': None,
             'selection': is_dark_laser_sync,
             'gaussian_fit': False,
-            'histogram_plot': False,
+            'histogram_plot': True,
             'event_plot': False,
         },
         {

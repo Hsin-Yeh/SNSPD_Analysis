@@ -30,8 +30,6 @@ from utils.plotUtilscopy import *
 # CONSTANTS
 # =============================================================================
 
-SOURCE_RATE = 1E7  # 10 MHz laser repetition rate
-
 # Global state
 DEBUG = False
 DISPLAY = False

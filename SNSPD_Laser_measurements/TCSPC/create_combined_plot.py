@@ -10,14 +10,15 @@ import sys
 sys.path.append(str(Path(__file__).parent))
 from read_phu import read_phu_file, load_power_data
 
-# Data files
+# Data files - can be customized via command line or modified here
 data_files = {
     '70mV': '/Users/ya/SNSPD_rawdata/SMSPD_3/TCSPC/SMSPD_3_2-7_500kHz_70mV_20260205_0122.phu',
     '74mV': '/Users/ya/SNSPD_rawdata/SMSPD_3/TCSPC/SMSPD_3_2-7_500kHz_74mV_20260205_0102.phu',
     '78mV': '/Users/ya/SNSPD_rawdata/SMSPD_3/TCSPC/SMSPD_3_2-7_500kHz_78mV_20260205_0230.phu',
+    # '66mV': '/Users/ya/SNSPD_rawdata/SMSPD_3/TCSPC/SMSPD_3_2-7_500kHz_66mV_20260205_0246.phu',  # Optional
 }
 
-output_dir = Path('/Users/ya/SNSPD_analyzed_output/TCSPC/SMSPD_3/combined')
+output_dir = Path('/Users/ya/SNSPD_analyzed_output/TCSPC/SMSPD_3/power_sweep/combined')
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # Load power data
@@ -152,10 +153,64 @@ ax.tick_params(labelsize=11)
 
 plt.tight_layout()
 
-# Save figure
-output_path = output_dir / 'combined_bias_comparison.png'
-fig.savefig(output_path, dpi=300, bbox_inches='tight')
-print(f"\n✓ Combined plot saved: {output_path}")
+# Save multiple plot versions
+output_path_loglog = output_dir / 'combined_power_sweep_loglog.png'
+fig.savefig(output_path_loglog, dpi=300, bbox_inches='tight')
+print(f"\n✓ Combined plot saved: {output_path_loglog}")
+
+# Create linear scale version
+fig2, ax2 = plt.subplots(figsize=(12, 8))
+
+for bias in sorted(all_data.keys()):
+    data = all_data[bias]
+    color = colors[bias]
+    marker = markers[bias]
+    
+    ax2.scatter(data['powers'], data['counts'], s=100, alpha=0.7,
+               color=color, edgecolors='black', linewidth=1.5,
+               marker=marker, label=f'{bias}', zorder=5)
+
+ax2.set_xlabel('Laser Power (µW)', fontsize=14, weight='bold')
+ax2.set_ylabel('Count Rate (cts/s)', fontsize=14, weight='bold')
+ax2.set_title('SNSPD Output vs Power: Bias Voltage Comparison (Linear Scale)\n(Dark-corrected, Signal window: 75.0-79.0 ns)', 
+             fontsize=15, weight='bold')
+ax2.grid(True, alpha=0.3)
+ax2.legend(loc='upper left', fontsize=11, framealpha=0.95)
+ax2.tick_params(labelsize=11)
+plt.tight_layout()
+
+output_path_linear = output_dir / 'combined_power_sweep_linear.png'
+fig2.savefig(output_path_linear, dpi=300, bbox_inches='tight')
+print(f"✓ Linear plot saved: {output_path_linear}")
+plt.close(fig2)
+
+# Create saturation zoom version
+fig3, ax3 = plt.subplots(figsize=(12, 8))
+
+for bias in sorted(all_data.keys()):
+    data = all_data[bias]
+    color = colors[bias]
+    marker = markers[bias]
+    
+    ax3.scatter(data['powers'], data['counts'], s=100, alpha=0.7,
+               color=color, edgecolors='black', linewidth=1.5,
+               marker=marker, label=f'{bias}', zorder=5)
+
+ax3.set_xlabel('Laser Power (µW)', fontsize=14, weight='bold')
+ax3.set_ylabel('Count Rate (cts/s)', fontsize=14, weight='bold')
+ax3.set_title('SNSPD Output vs Power: Saturation Region\n(Dark-corrected, Signal window: 75.0-79.0 ns)', 
+             fontsize=15, weight='bold')
+ax3.grid(True, alpha=0.3)
+ax3.set_xlim(0, 0.3)  # Focus on low-power saturation region
+ax3.legend(loc='upper left', fontsize=11, framealpha=0.95)
+ax3.tick_params(labelsize=11)
+plt.tight_layout()
+
+output_path_sat = output_dir / 'combined_power_sweep_saturation.png'
+fig3.savefig(output_path_sat, dpi=300, bbox_inches='tight')
+print(f"✓ Saturation plot saved: {output_path_sat}")
+plt.close(fig3)
+
 plt.close(fig)
 
 # Create summary table
