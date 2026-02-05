@@ -1,0 +1,88 @@
+═══════════════════════════════════════════════════════════════════════════════
+                   DARK COUNT ESTIMATION METHOD COMPARISON
+                   Out-of-Time (OOT) vs Block 0 Baseline
+═══════════════════════════════════════════════════════════════════════════════
+
+OVERVIEW:
+─────────
+Two dark count estimation methods are compared across 43 SNSPD measurements
+spanning a 1,204× power dynamic range (0.0119 µW to 14.33 µW):
+
+  Method A (Block 0 Direct):   Single fixed measurement at 0 µW = 17.73 cts/s
+  Method B (OOT Scaled):       Per-measurement estimate from 0-10 ns region,
+                               scaled to 5.4 ns signal window
+
+KEY STATISTICS:
+───────────────
+Block 0 Baseline:                    17.73 cts/s (fixed, absolute reference)
+OOT Mean:                            12.94 cts/s (range: 0.00 - 21.19 cts/s)
+OOT Std Dev:                         8.17 cts/s
+
+Absolute Difference (OOT - Block 0):
+  Mean:                              -4.80 cts/s  
+  Aggregate Percentage:              -27.0%
+
+PERCENTAGE DEVIATION ANALYSIS (43 measurements):
+─────────────────────────────────────────────────
+  Mean Deviation:                    -27.0%
+  Standard Deviation:                +46.1%
+  Minimum:                          -100.0%  (at highest power: 14.33 µW)
+  Maximum:                          +19.5%   (at 0.0718 µW)
+
+POWER-DEPENDENT PATTERN:
+────────────────────────
+The OOT method shows systematic underestimation that varies with power:
+
+HIGH POWER REGIME (1-14 µW):
+  - Extreme underestimation: -100% to -36.5%
+  - OOT estimates approach 0 cts/s
+  - Block 0 baseline provides more reliable value
+  - Reason: At high signal rates, out-of-time window may be depleted or
+    affected by dead-time corrections
+
+MEDIUM POWER REGIME (0.1-1 µW):
+  - Moderate underestimation: -16.3% to +2.6%
+  - OOT estimates: 14-19 cts/s (closer to Block 0)
+  - Reasonable agreement begins
+
+LOW POWER REGIME (0.01-0.1 µW):
+  - Mixed bias: -2.7% to +19.5%
+  - OOT estimates: 17-21 cts/s
+  - Best agreement with Block 0 baseline
+  - Slight tendency for overestimation (+8% typical)
+  - Physically more realistic: higher variance expected at low rates
+
+DETAILED MEASUREMENT BREAKDOWN (selected):
+──────────────────────────────────────────
+Power         OOT (cts/s)  Block 0  Diff (cts/s)  Diff (%)
+────────────────────────────────────────────────────────────
+14.33 µW      0.00         17.73    -17.73        -100.0%    [Severe underestimation]
+9.87 µW       0.00         17.73    -17.73        -100.0%
+1.14 µW       11.27        17.73    -6.47         -36.5%
+0.141 µW      18.45        17.73    +0.72         +4.0%      [Good agreement]
+0.072 µW      21.19        17.73    +3.45         +19.5%     [Overestimation at low power]
+0.012 µW      18.97        17.73    +1.24         +7.0%      [Near baseline]
+
+INTERPRETATION:
+────────────────
+1. OOT Method Limitation: The out-of-time dark count estimation from 0-10 ns
+   region becomes unreliable at high signal rates where:
+   - Dead time effects become significant
+   - The histogram baseline shifts or depletes
+   - Per-measurement variations are large
+
+2. Block 0 Baseline Advantage: Single fixed measurement provides consistent,
+   physically-grounded reference (actual 0 µW dark count measurement)
+
+3. Practical Recommendation:
+   * Use Block 0 baseline (17.73 cts/s) for dark count subtraction
+   * OOT method is variable and power-dependent
+   * Residual bias range: -27% +/- 46% (too large for routine use)
+   * OOT method NOT suitable for automatic per-measurement correction
+
+4. Model Validation: With Block 0 dark count subtraction:
+   - Power law exponent: n = 1.0542 +/- 0.0335
+   - R-squared = 0.9897 (excellent fit)
+   - Nearly linear responsivity confirmed
+
+═══════════════════════════════════════════════════════════════════════════════
