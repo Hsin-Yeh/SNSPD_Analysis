@@ -9,43 +9,33 @@ from pathlib import Path
 import sys
 sys.path.append(str(Path(__file__).parent))
 from read_phu import read_phu_file, load_power_data
+from tcspc_config import (
+    T_MIN_NS, T_MAX_NS, SIGNAL_WIDTH_NS, FIT_MAX_UW,
+    POWER_DATA_FILE, OUTPUT_DIR_COMBINED, BIAS_SETTINGS, BIAS_FILES
+)
+from tcspc_analysis import extract_oot_pre_dark_counts, subtract_dark_counts, fit_power_law
 
-# Data files - can be customized via command line or modified here
-data_files = {
-    '70mV': '/Users/ya/SNSPD_rawdata/SMSPD_3/TCSPC/SMSPD_3_2-7_500kHz_70mV_20260205_0122.phu',
-    '74mV': '/Users/ya/SNSPD_rawdata/SMSPD_3/TCSPC/SMSPD_3_2-7_500kHz_74mV_20260205_0102.phu',
-    '78mV': '/Users/ya/SNSPD_rawdata/SMSPD_3/TCSPC/SMSPD_3_2-7_500kHz_78mV_20260205_0230.phu',
-    # '66mV': '/Users/ya/SNSPD_rawdata/SMSPD_3/TCSPC/SMSPD_3_2-7_500kHz_66mV_20260205_0246.phu',  # Optional
-}
+# Data files
+data_files = BIAS_FILES
 
-output_dir = Path('/Users/ya/SNSPD_analyzed_output/TCSPC/SMSPD_3/power_sweep/combined')
+output_dir = OUTPUT_DIR_COMBINED
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # Load power data
-workspace_attenuation = Path(__file__).parent.parent / "Attenuation" / "Rotation_10MHz_5degrees_data_20260205.txt"
-if not workspace_attenuation.exists():
-    print(f"Error: Power data file not found: {workspace_attenuation}")
+if not POWER_DATA_FILE.exists():
+    print(f"Error: Power data file not found: {POWER_DATA_FILE}")
     sys.exit(1)
 
-power_data = load_power_data(workspace_attenuation)
+power_data = load_power_data(POWER_DATA_FILE)
 print(f"Loaded power data for {len(power_data)} block IDs")
 
-# Signal window
-t_min_ns, t_max_ns = 75.0, 79.0
-signal_width_ns = t_max_ns - t_min_ns
+# Signal window - from config
+t_min_ns, t_max_ns = T_MIN_NS, T_MAX_NS
+signal_width_ns = SIGNAL_WIDTH_NS
 
-# Colors for each bias
-colors = {
-    '70mV': 'blue',
-    '74mV': 'green',
-    '78mV': 'red',
-}
-
-markers = {
-    '70mV': 'o',
-    '74mV': 's',
-    '78mV': '^',
-}
+# Colors and markers for each bias - from config
+colors = {bias: BIAS_SETTINGS[bias]['color'] for bias in BIAS_SETTINGS}
+markers = {bias: BIAS_SETTINGS[bias]['marker'] for bias in BIAS_SETTINGS}
 
 # Collect data from all files
 all_data = {}
@@ -58,7 +48,7 @@ for bias, filepath in data_files.items():
         print(f"Warning: File not found: {filepath}")
         continue
     
-    header, histograms = read_phu_file(filepath)
+    header, histograms = read_phu_file(filepath, verbose=False)
     
     curve_indices = header.get('HistResDscr_CurveIndex', {})
     acq_time_ms = header.get('MeasDesc_AcquisitionTime', 10000)
@@ -71,7 +61,7 @@ for bias, filepath in data_files.items():
     
     powers = []
     counts = []
-    dark_count_rate = None
+    oot_pre_darks = []  # Store OOT_pre dark counts for each point
     
     for i, hist in enumerate(histograms):
         block_id = curve_indices.get(i, None)
@@ -82,45 +72,80 @@ for bias, filepath in data_files.items():
         counts_in_window = int(np.sum(hist[bin_min:bin_max]))
         count_rate = counts_in_window / acq_time_s
         
-        if block_id == 0:
-            dark_count_rate = count_rate
-        else:
+        # Calculate OOT_pre dark count using shared function
+        oot_pre_dark = extract_oot_pre_dark_counts(hist, resolution_s, SIGNAL_WIDTH_NS, acq_time_s)
+        
+        if block_id != 0:
             powers.append(power_data[block_id])
             counts.append(count_rate)
+            oot_pre_darks.append(oot_pre_dark)
     
-    # Subtract dark count
+    # Subtract dark count using shared function
     powers_arr = np.array(powers)
     counts_arr = np.array(counts)
+    oot_pre_darks_arr = np.array(oot_pre_darks)
     
-    if dark_count_rate is not None:
-        counts_corrected = counts_arr - dark_count_rate
+    # Use OOT_pre as dark count for each measurement
+    if len(oot_pre_darks_arr) > 0:
+        counts_corrected, dark_count_rate = subtract_dark_counts(
+            counts_arr, oot_pre_darks_arr, method='per_measurement'
+        )
+        print(f"  Using OOT_pre (0-60 ns) dark count method")
     else:
         counts_corrected = counts_arr
+        dark_count_rate = None
     
-    # Fit power law in low-power region
-    fit_max = 2e-1  # < 0.2 µW
-    fit_mask = powers_arr <= fit_max
+    # Fit power law in low-power region using shared function
+    # Try adaptive fit range for biases with insufficient low-power data
+    try:
+        fit_results = fit_power_law(powers_arr, counts_corrected, FIT_MAX_UW)
+        fit_max_used = FIT_MAX_UW
+    except ValueError as e:
+        # If default fit range has insufficient points, try expanding
+        print(f"  Warning: {e}")
+        print(f"  Attempting adaptive fit range...")
+        
+        # Find minimum power that gives at least 5 data points
+        sorted_powers = np.sort(powers_arr[powers_arr > 0])
+        if len(sorted_powers) >= 5:
+            adaptive_fit_max = sorted_powers[4]  # 5th smallest power (0-indexed)
+            print(f"  Using adaptive fit max: {adaptive_fit_max:.3f} µW (includes {np.sum(powers_arr <= adaptive_fit_max)} points)")
+            fit_results = fit_power_law(powers_arr, counts_corrected, adaptive_fit_max)
+            fit_max_used = adaptive_fit_max
+        else:
+            print(f"  Error: Not enough data points for adaptive fit")
+            continue
     
-    if np.sum(fit_mask) >= 2:
-        from scipy import stats
-        log_powers_fit = np.log10(powers_arr[fit_mask])
-        log_counts_fit = np.log10(counts_corrected[fit_mask])
-        slope, intercept, r_value, _, std_err = stats.linregress(log_powers_fit, log_counts_fit)
-        
-        all_data[bias] = {
-            'powers': powers_arr,
-            'counts': counts_corrected,
-            'dark': dark_count_rate,
-            'slope': slope,
-            'intercept': intercept,
-            'std_err': std_err,
-            'fit_powers': powers_arr[fit_mask],
-        }
-        
+    slope = fit_results['slope']
+    intercept = fit_results['intercept']
+    std_err = fit_results['std_err']
+    chi2_ndf = fit_results['chi2_ndf']
+    fit_mask = fit_results['fit_mask']
+    fit_powers = fit_results['fit_powers']
+    
+    all_data[bias] = {
+        'powers': powers_arr,
+        'counts': counts_corrected,
+        'dark': dark_count_rate,
+        'slope': slope,
+        'intercept': intercept,
+        'std_err': std_err,
+        'fit_powers': fit_powers,
+        'chi2_ndf': chi2_ndf,
+        'fit_max_used': fit_max_used,
+    }
+    
+    if dark_count_rate is not None:
         print(f"  Dark count: {dark_count_rate:.2f} cts/s")
-        print(f"  Power law exponent: n = {slope:.4f} ± {std_err:.4f}")
-    else:
-        print(f"  Not enough data points for fit")
+    print(f"  Power law exponent: n = {slope:.4f} ± {std_err:.4f}")
+    print(f"  Chi²/ndf: {chi2_ndf:.4f}")
+    if fit_max_used != FIT_MAX_UW:
+        print(f"  Note: Used adaptive fit range up to {fit_max_used:.3f} µW")
+
+print(f"\n{'='*80}")
+print(f"Successfully loaded biases: {sorted(all_data.keys())}")
+print(f"Failed/skipped biases: {[b for b in data_files.keys() if b not in all_data]}")
+print(f"{'='*80}\n")
 
 # Create combined plot
 fig, ax = plt.subplots(figsize=(12, 8))
@@ -139,7 +164,7 @@ for bias in sorted(all_data.keys()):
     fit_line = 10**(data['slope'] * np.log10(data['fit_powers']) + data['intercept'])
     ax.plot(data['fit_powers'], fit_line, 
             color=color, linewidth=3, linestyle='-', alpha=0.85,
-            label=f'{bias} fit: n={data["slope"]:.3f}±{data["std_err"]:.3f}', zorder=3)
+            label=f'{bias} fit: n={data["slope"]:.3f}±{data["std_err"]:.3f}, χ²/ndf={data["chi2_ndf"]:.4f}', zorder=3)
 
 ax.set_xlabel('Laser Power (µW)', fontsize=14, weight='bold')
 ax.set_ylabel('Count Rate (cts/s)', fontsize=14, weight='bold')
@@ -217,11 +242,11 @@ plt.close(fig)
 print(f"\n{'='*80}")
 print("SUMMARY: Power Law Fits for Different Bias Voltages")
 print(f"{'='*80}")
-print(f"{'Bias':<10} {'Dark (cts/s)':<15} {'Exponent (n)':<20} {'Chi^2/ndf':<15}")
+print(f"{'Bias':<10} {'Dark (cts/s)':<15} {'Exponent (n)':<25} {'Chi^2/ndf':<15}")
 print(f"{'-'*80}")
 for bias in sorted(all_data.keys()):
     data = all_data[bias]
-    print(f"{bias:<10} {data['dark']:<15.2f} {data['slope']:.4f} ± {data['std_err']:.4f}")
+    print(f"{bias:<10} {data['dark']:<15.2f} {data['slope']:.4f} ± {data['std_err']:.4f}       {data['chi2_ndf']:<15.4f}")
 print(f"{'='*80}\n")
 
 print(f"All outputs saved to: {output_dir.parent}")

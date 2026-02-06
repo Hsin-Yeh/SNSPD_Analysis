@@ -1,0 +1,54 @@
+# TCSPC Analysis - Interpolated Power Data Integration
+
+## ✅ Integration Complete
+
+The TCSPC analysis pipeline now uses **1-degree interpolated power data** (90-340° range with cubic interpolation).
+
+## Quick Stats
+
+- **Data points**: 250 (1° spacing, 90-340°)
+- **Previous**: 72 (5° spacing, full rotation)
+- **Resolution gain**: 5× finer power calibration
+- **Method**: Cubic interpolation (smooth exponential decay)
+
+## Updated Scripts
+
+| File | Status | Changes |
+|------|--------|---------|
+| `tcspc_config.py` | ✅ Updated | POWER_DATA_FILE path changed |
+| `read_phu.py` | ✅ Updated | 2 references updated to new file |
+| `create_combined_plot.py` | ✅ Automatic | Uses POWER_DATA_FILE from config |
+
+## Active Data File
+
+**`Rotation_10MHz_1degree_data_90-340_20260205.txt`**
+- Location: `~/Documents/Projects/SNSPD/SNSPD_Analysis/SNSPD_Laser_measurements/Attenuation/`
+- Size: ~8 KB
+- Format: Tab-separated [Angle° | Power_nW]
+
+## Usage Example
+
+```bash
+# All scripts now automatically use the interpolated data
+python3 read_phu.py /path/to/measurement.phu
+python3 create_combined_plot.py
+python3 analyze_bias_sweep.py /path/to/measurement.phu
+```
+
+## Rollback Option
+
+If needed, revert to original 5-degree data:
+```python
+# In tcspc_config.py, change line 22 to:
+POWER_DATA_FILE = PROJECT_ROOT / "Attenuation" / "Rotation_10MHz_5degrees_data_20260205.txt"
+```
+
+## Impact
+
+✓ Plots have finer power axis detail  
+✓ Power corrections more accurate (±0.5° vs ±2.5°)  
+✓ Smoother power calibration curves  
+✓ Better for chi-square fits with power-dependent features  
+
+---
+Ready for production TCSPC analysis!

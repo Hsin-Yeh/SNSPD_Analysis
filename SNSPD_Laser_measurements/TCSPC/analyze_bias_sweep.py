@@ -5,7 +5,7 @@ Analyze SNSPD response vs bias voltage at fixed laser power.
 For each measurement block:
 - Block number encodes bias voltage (in mV)
 - Extract count rate in signal window (75-79 ns)
-- Estimate dark count from OOT region (100-200 ns)
+- Estimate dark count from OOT region (0-60 ns) using shared functions
 - Plot corrected count rate vs bias voltage
 """
 
@@ -16,6 +16,10 @@ import struct
 from pathlib import Path
 import json
 import sys
+import re
+
+from tcspc_analysis import extract_oot_pre_dark_counts, subtract_dark_counts
+from tcspc_config import OUTPUT_DIR_BIAS_SWEEP, T_MIN_NS, T_MAX_NS
 
 
 def read_phu_file_simple(filepath):
@@ -104,7 +108,7 @@ def read_phu_file_simple(filepath):
     return header, histograms
 
 
-def analyze_bias_sweep(filepath, time_window_ns=(75.0, 80.0), output_dir=None):
+def analyze_bias_sweep(filepath, time_window_ns=None, output_dir=None):
     """
     Analyze SNSPD response vs bias voltage.
     
@@ -112,22 +116,19 @@ def analyze_bias_sweep(filepath, time_window_ns=(75.0, 80.0), output_dir=None):
     -----------
     filepath : str
         Path to .phu file
-    time_window_ns : tuple
+    time_window_ns : tuple, optional
         Signal extraction window in nanoseconds (t_min, t_max)
+        If None, uses T_MIN_NS and T_MAX_NS from config
     output_dir : str or Path, optional
         Output directory for plots and data
     """
     
-    if output_dir is None:
-        output_dir = Path(filepath).parent / "bias_sweep_output"
-    else:
-        output_dir = Path(output_dir)
-    
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Use config defaults if not specified
+    if time_window_ns is None:
+        time_window_ns = (T_MIN_NS, T_MAX_NS)
     
     # Extract power and angle from filename
     filename = Path(filepath).name
-    import re
     
     power_match = re.search(r'(\d+(?:\.\d+)?)nW', filename)
     angle_match = re.search(r'(\d+)degrees', filename)
@@ -141,6 +142,19 @@ def analyze_bias_sweep(filepath, time_window_ns=(75.0, 80.0), output_dir=None):
         laser_angle_deg = int(angle_match.group(1))
     else:
         laser_angle_deg = None
+    
+    # Set output directory
+    if output_dir is None:
+        # Extract power from filename and create folder
+        if power_match:
+            power_str = power_match.group(0)  # e.g., "99nW"
+            output_dir = OUTPUT_DIR_BIAS_SWEEP / power_str
+        else:
+            output_dir = OUTPUT_DIR_BIAS_SWEEP / "unknown"
+    else:
+        output_dir = Path(output_dir)
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
     
     # Read file
     print(f"Reading: {filepath}\n")
@@ -191,34 +205,16 @@ def analyze_bias_sweep(filepath, time_window_ns=(75.0, 80.0), output_dir=None):
         else:
             signal_rate = 0
         
-        # For dark count file (0 nW), use entire histogram for better statistics
-        # then scale to signal region width
+        # Use shared function to extract dark counts from OOT_pre region (0-60 ns)
+        dark_counts_per_measurement = extract_oot_pre_dark_counts(
+            hist, resolution_s, signal_width_ns, acq_time_s
+        )
+        dark_rate = dark_counts_per_measurement / acq_time_s
+        
+        # For dark count file (0 nW), the signal IS the dark count
         if laser_power_nW == 0:
-            total_counts = int(np.sum(hist))
-            total_rate = total_counts / acq_time_s  # Total count rate across all bins
-            
-            # Calculate total time range of histogram
-            total_bins = len(hist)
-            total_time_range_ns = total_bins * resolution_s * 1e9
-            
-            # Scale to signal window width for comparison
-            # dark_rate in signal region = (total_rate) * (signal_width / total_width)
-            dark_rate = total_rate * (signal_width_ns / total_time_range_ns)
             net_rate = 0  # No signal in dark-only measurement
         else:
-            # Estimate dark count from OOT region (100-200 ns)
-            oot_t_start, oot_t_end = 100.0, 200.0
-            oot_bin_min = int(oot_t_start * 1e-9 / resolution_s)
-            oot_bin_max = int(oot_t_end * 1e-9 / resolution_s)
-            oot_width_ns = oot_t_end - oot_t_start
-            
-            if oot_bin_max <= len(hist):
-                oot_counts = int(np.sum(hist[oot_bin_min:oot_bin_max]))
-                # Scale to signal window width
-                dark_rate = (oot_counts / oot_width_ns) * signal_width_ns / acq_time_s
-            else:
-                dark_rate = 0
-            
             # Corrected count rate
             net_rate = signal_rate - dark_rate
         
