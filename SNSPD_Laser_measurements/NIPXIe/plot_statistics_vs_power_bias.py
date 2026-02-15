@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import json
+from pathlib import Path
 
 
 def _val_err(entry):
@@ -237,3 +239,115 @@ def plot_multi_statistics_vs_power(bias_groups, output_dir, loglog_fit_range=Non
         fname_log = os.path.join(var_dir, f'{var}_vs_power_multi_loglog.png')
         plt.savefig(fname_log, dpi=150)
         plt.close()
+
+
+def plot_laser_sync_histogram_stack_vs_power(bias_data, output_dir):
+    """
+    Create stacked histograms of True_laser_sync_time for power sweep.
+    
+    Args:
+        bias_data: List of measurement data dicts grouped by bias voltage
+        output_dir: Output directory for plots
+    """
+    from analyze_events import LASER_SYNC_LOWER_LIMIT, LASER_SYNC_UPPER_LIMIT, is_true_laser_sync
+    
+    # Filter data with valid power values
+    valid_data = [d for d in bias_data if d.get('power') is not None]
+    if not valid_data:
+        return
+    
+    # Sort by power
+    valid_data.sort(key=lambda x: x['power'])
+    
+    # Extract powers and bias voltage
+    powers = [d['power'] for d in valid_data]
+    bias = valid_data[0].get('bias_voltage', 'Unknown')
+    
+    # Read event data and extract True_laser_sync_time histograms
+    histograms = []
+    labels = []
+    
+    for d in valid_data:
+        # Find the corresponding Stage 1 event JSON file
+        stats_file = d.get('file_path')
+        if not stats_file:
+            continue
+            
+        # Determine the Stage 1 events file path
+        # Stage 2 statistics files are in: .../stage2_statistics/.../json_stats/statistics_*_analysis.json
+        # Stage 1 files are in: .../stage1_events/.../*_analysis.json (without 'statistics_' prefix and not in json_stats/)
+        stats_path = Path(stats_file)
+        
+        # Check if this is a Stage 2 file (in stage2_statistics directory)
+        if 'stage2_statistics' in str(stats_path):
+            # Construct Stage 1 path by:
+            # 1. Replace stage2_statistics with stage1_events
+            # 2. Remove '/json_stats/' subdirectory
+            # 3. Remove 'statistics_' prefix from filename
+            event_path_str = str(stats_path).replace('stage2_statistics', 'stage1_events')
+            # Remove the json_stats subdirectory part
+            event_path_str = event_path_str.replace('/json_stats', '')
+            # Get the filename without 'statistics_' prefix
+            event_filename = stats_path.name.replace('statistics_', '')
+            event_path = Path(event_path_str).parent / event_filename
+        else:
+            # Already a Stage 1 file
+            event_path = stats_path
+        
+        if not event_path.exists():
+            continue
+        
+        # Read event data
+        try:
+            with open(event_path, 'r') as f:
+                event_data = json.load(f)
+            
+            # Extract True_laser_sync events
+            events = event_data.get('events', [])
+            
+            true_sync_times = [
+                event['laser_sync_arrival'] 
+                for event in events 
+                if 'laser_sync_arrival' in event and is_true_laser_sync(event)
+            ]
+            
+            if true_sync_times:
+                histograms.append(true_sync_times)
+                labels.append(f"{d['power']:.1f} nW")
+        except Exception as e:
+            print(f"    Warning: Error reading {event_path.name}: {e}")
+            continue
+    
+    if not histograms:
+        print(f"No histogram data found for bias {bias} mV")
+        return
+    
+    # Create stacked histogram plot
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Use consistent bins across all histograms
+    bins = np.linspace(LASER_SYNC_LOWER_LIMIT, LASER_SYNC_UPPER_LIMIT, 100)
+    
+    # Plot stacked histograms with offset for visibility
+    colors = plt.cm.viridis(np.linspace(0, 0.9, len(histograms)))
+    
+    for i, (hist_data, label) in enumerate(zip(histograms, labels)):
+        counts, bin_edges = np.histogram(hist_data, bins=bins)
+        # Normalize to counts per bin
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        ax.plot(bin_centers, counts, label=label, color=colors[i], linewidth=1.5, alpha=0.8)
+    
+    ax.set_xlabel('Laser Sync Time (ns)', fontsize=12)
+    ax.set_ylabel('Counts', fontsize=12)
+    ax.set_title(f'True Laser Sync Time Distribution vs Power (Bias: {bias} mV)', fontsize=14, fontweight='bold')
+    ax.set_xlim(LASER_SYNC_LOWER_LIMIT, LASER_SYNC_UPPER_LIMIT)
+    ax.legend(loc='best', fontsize=9)
+    ax.grid(True, alpha=0.3)
+    
+    # Save plot
+    outdir = os.path.join(output_dir, "power", "laser_sync_histograms")
+    os.makedirs(outdir, exist_ok=True)
+    fname = os.path.join(outdir, f'laser_sync_histogram_stack_vs_power_{bias}mV.png')
+    plt.savefig(fname, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  Saved stacked histogram: {fname}")

@@ -4,7 +4,7 @@ Analyze SNSPD response vs bias voltage at fixed laser power.
 
 For each measurement block:
 - Block number encodes bias voltage (in mV)
-- Extract count rate in signal window (75-79 ns)
+- Extract count rate in TOA window (75-79 ns)
 - Estimate dark count from OOT region (0-60 ns) using shared functions
 - Plot corrected count rate vs bias voltage
 """
@@ -18,7 +18,7 @@ import json
 import sys
 import re
 
-from tcspc_analysis import extract_oot_pre_dark_counts, subtract_dark_counts
+from tcspc_analysis import extract_oot_mid_dark_counts, subtract_dark_counts
 from tcspc_config import OUTPUT_DIR_BIAS_SWEEP, T_MIN_NS, T_MAX_NS
 
 
@@ -170,7 +170,7 @@ def analyze_bias_sweep(filepath, time_window_ns=None, output_dir=None):
     bin_max = int(t_max_ns * 1e-9 / resolution_s)
     signal_width_ns = t_max_ns - t_min_ns
     
-    print(f"Signal window: {t_min_ns:.1f}-{t_max_ns:.1f} ns (width: {signal_width_ns:.1f} ns)")
+    print(f"TOA window: {t_min_ns:.1f}-{t_max_ns:.1f} ns (width: {signal_width_ns:.1f} ns)")
     print(f"Acquisition time: {acq_time_s:.3f} s")
     print(f"Resolution: {resolution_s*1e12:.1f} ps\n")
     
@@ -205,8 +205,8 @@ def analyze_bias_sweep(filepath, time_window_ns=None, output_dir=None):
         else:
             signal_rate = 0
         
-        # Use shared function to extract dark counts from OOT_pre region (0-60 ns)
-        dark_counts_per_measurement = extract_oot_pre_dark_counts(
+        # Use shared function to extract dark counts from OOT_mid region (80-100 ns)
+        dark_counts_per_measurement = extract_oot_mid_dark_counts(
             hist, resolution_s, signal_width_ns, acq_time_s
         )
         dark_rate = dark_counts_per_measurement / acq_time_s
@@ -254,14 +254,14 @@ def analyze_bias_sweep(filepath, time_window_ns=None, output_dir=None):
     fig1, ax1 = plt.subplots(figsize=(10, 6))
     
     ax1.scatter(bias_arr, counts_arr_normalized, s=120, alpha=0.8, color='blue', edgecolors='navy', 
-                linewidth=1.5, label='SNSPD output (normalized)')
+                linewidth=1.5, label='Count (normalized)')
     ax1.axhline(y=1.0, color='red', linestyle='--', linewidth=2, alpha=0.7, label='Saturation')
     
     ax1.set_xlabel('Bias Voltage (mV)', fontsize=12)
     ax1.set_ylabel(f'Normalized Count Rate (arb. units)', fontsize=12)
     
     # Build title based on available info
-    title_parts = ['SNSPD Output vs Bias Voltage (Normalized)']
+    title_parts = ['Count vs Bias Voltage (Normalized)']
     subtitle_parts = []
     if laser_power_nW > 0:
         subtitle_parts.append(f'{laser_power_nW:.0f} nW')
@@ -351,7 +351,7 @@ def analyze_bias_sweep(filepath, time_window_ns=None, output_dir=None):
     fig3, ax3 = plt.subplots(figsize=(10, 6))
     
     ax3.semilogy(bias_arr, counts_arr_normalized, 'o-', color='blue', markersize=8, linewidth=2, 
-                 label='SNSPD output (normalized)')
+                 label='Count (normalized)')
     ax3.semilogy(bias_arr, dark_arr_normalized, 's--', color='red', markersize=6, linewidth=1.5, 
                  alpha=0.7, label='Dark (OOT, normalized)')
     

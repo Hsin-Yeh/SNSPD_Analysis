@@ -6,13 +6,22 @@ Based on PicoQuant PHU file format specification.
 """
 
 import struct
+import os
+import json
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from datetime import datetime, timedelta
 from scipy import stats
 from tcspc_config import T_MIN_NS, T_MAX_NS, SIGNAL_WIDTH_NS, FIT_MAX_UW, OUTPUT_DIR_INDIVIDUAL
-from tcspc_analysis import extract_oot_pre_dark_counts, subtract_dark_counts, fit_power_law, print_fit_summary
+from tcspc_analysis import (
+    extract_oot_pre_dark_counts,
+    subtract_dark_counts,
+    fit_power_law,
+    print_fit_summary,
+    print_chi2_explanation,
+)
+from results_generator import write_bias_results, append_to_history_log
 
 def read_phu_file(filepath, verbose=True):
     """Read a .phu file and extract header information and data."""
@@ -206,7 +215,7 @@ def load_power_data(power_file_path):
     return power_data
 
 def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_window_ns=None, bias_voltage=None,
-                             block0_ref_file=None, block0_ref_block=None, debug=False):
+                             block0_ref_file=None, block0_ref_block=None, debug=False, source_file=None):
     """Create a plot showing count rate vs power with time window cut on histograms."""
     if time_window_ns is None:
         time_window_ns = (T_MIN_NS, T_MAX_NS)
@@ -235,18 +244,21 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
     # Collect data points
     powers = []
     output_counts = []
+    window_counts = []
     estimated_dark_counts = []  # Dark count estimate from 0-10 ns region
     estimated_dark_counts_early = []  # Dark count estimate from 0-60 ns region
+    estimated_dark_counts_mid = []    # Dark count estimate from 80-100 ns region
     estimated_dark_counts_late = []   # Dark count estimate from >100 ns region
     block_ids = []
-    dark_count_rate = None  # For Block 0 (dark count)
+    dark_count_rate = None  # For 0µW (dark count)
     
-    # Define out-of-time regions (avoiding >80 ns which may have signal contamination)
+    # Define out-of-time regions
     signal_width_ns = t_max_ns - t_min_ns  # 5.4 ns
     
     oot_regions = {
         '0-10ns': (0, 10.0),
         '0-60ns': (0, 60.0),
+        '80-100ns': (80.0, 100.0),
         '100-200ns': (100.0, 200.0)
     }
     
@@ -260,7 +272,7 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
                 # Extract counts in signal time window
                 if bin_max <= len(hist):
                     counts_in_window = int(np.sum(hist[bin_min:bin_max]))
-                    # Calculate count rate in signal window
+                    # Calculate count rate in TOA window
                     count_rate = counts_in_window / acq_time_s
                     
                     # Extract counts from multiple out-of-time regions
@@ -276,24 +288,27 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
                             estimated_dark_counts.append(estimated_dark)
                         elif region_name == '0-60ns' and block_id != 0:
                             estimated_dark_counts_early.append(estimated_dark)
+                        elif region_name == '80-100ns' and block_id != 0:
+                            estimated_dark_counts_mid.append(estimated_dark)
                         elif region_name == '100-200ns' and block_id != 0:
                             estimated_dark_counts_late.append(estimated_dark)
                     
-                    # Separate dark count data (Block 0 at 0 µW)
+                    # Separate dark count data (0µW at 0 µW)
                     if block_id == 0:
                         dark_count_rate = count_rate
                     else:
                         powers.append(power_data[block_id])
                         output_counts.append(count_rate)
+                        window_counts.append(counts_in_window)
                         block_ids.append(block_id)
     
-    # If Block 0 is missing, try external reference file
+    # If 0µW is missing, try external reference file
     if dark_count_rate is None and block0_ref_file is not None and block0_ref_block is not None:
         external_dark = get_block_count_rate_from_file(block0_ref_file, block0_ref_block, time_window_ns)
         if external_dark is not None:
             dark_count_rate = external_dark
-            print(f"Using external Block 0 reference: {block0_ref_file} (block {block0_ref_block})")
-            print(f"External Block 0 count rate: {dark_count_rate:.2f} cts/s")
+            print(f"Using external 0µW reference: {block0_ref_file} (block {block0_ref_block})")
+            print(f"External 0µW count rate: {dark_count_rate:.2f} cts/s")
 
     if len(powers) == 0:
         print("No matching power-count data points")
@@ -302,21 +317,23 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
     # Convert to numpy arrays for fitting
     powers_arr = np.array(powers)
     counts_arr = np.array(output_counts)
+    window_counts_arr = np.array(window_counts)
     estimated_dark_arr_early = np.array(estimated_dark_counts_early)
+    estimated_dark_arr_mid = np.array(estimated_dark_counts_mid)
     estimated_dark_arr_late = np.array(estimated_dark_counts_late)
     
     # Handle dark count subtraction using shared function
     print(f"\n=== Dark Count Subtraction ===")
-    print(f"Using OOT_pre (0-60 ns) dark count method")
+    print("Using OOT_{mid} (80-100 ns) dark count method")
     
     # Subtract per-measurement dark counts
-    if len(estimated_dark_arr_early) > 0:
+    if len(estimated_dark_arr_mid) > 0:
         counts_arr_corrected, dark_count_rate_used = subtract_dark_counts(
-            counts_arr, estimated_dark_arr_early, method='per_measurement'
+            counts_arr, estimated_dark_arr_mid, method='per_measurement'
         )
-        print(f"OOT_pre dark count (per-measurement subtraction): {dark_count_rate_used:.2f} cts/s (mean)")
+        print(f"OOT_{{mid}} dark count (per-measurement subtraction): {dark_count_rate_used:.2f} cts/s (mean)")
     else:
-        print("Warning: No OOT_pre dark data available")
+        print("Warning: No OOT_{mid} dark data available")
         counts_arr_corrected = counts_arr
         dark_count_rate_used = None
     
@@ -327,7 +344,7 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
     
     # Fit power law using shared function
     try:
-        fit_results = fit_power_law(powers_arr, counts_arr_corrected, FIT_MAX_UW)
+        fit_results = fit_power_law(powers_arr, counts_arr_corrected, FIT_MAX_UW, measurement_time=acq_time_s)
         slope = fit_results['slope']
         intercept = fit_results['intercept']
         std_err = fit_results['std_err']
@@ -336,11 +353,106 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
         powers_fit = fit_results['fit_powers']
         counts_fit = fit_results['fit_counts']
         fit_counts = fit_results['fit_line']
+        fit_range_used = f"0 - {FIT_MAX_UW:.2e} µW"
         
-        print(f"\n=== Fit Range: 0 - {FIT_MAX_UW:.2e} µW ===")
+        print(f"\n=== Fit Range: {fit_range_used} ===")
         print(f"Data points in fit range: {np.sum(fit_mask)}/{len(powers_arr)}")
         
+        # Calculate responsivity at 100 nW
+        responsivity_100nw = (10**intercept) * (0.1**slope)  # 0.1 µW = 100 nW
+    except ValueError as e:
+        # If fit fails due to insufficient points, try fallback range 1-3 µW
+        print(f"\n⚠️ Initial fit failed: {e}")
+        print(f"\n=== Attempting fallback fit: 1 - 3 µW ===")
+        
+        fallback_min = 1.0  # µW
+        fallback_max = 3.0  # µW
+        fallback_mask = (powers_arr >= fallback_min) & (powers_arr <= fallback_max)
+        
+        if np.sum(fallback_mask) < 2:
+            print(f"❌ Fallback fit also failed: only {np.sum(fallback_mask)} points in range {fallback_min}-{fallback_max} µW")
+            # Still do photon analysis even if fit fails
+            print(f"\nSkipping power-law fitting, proceeding with photon number analysis only...")
+            
+            # Initialize with dummy values
+            slope = np.nan
+            intercept = np.nan
+            std_err = np.nan
+            chi2_ndf_main = np.nan
+            fit_range_used = "fitting failed"
+            fit_mask = np.zeros(len(powers_arr), dtype=bool)
+            powers_fit = np.array([])
+            counts_fit = np.array([])
+            fit_counts = np.array([])
+            
+            return fig if 'fig' in locals() else None
+
+        
+        # Perform fit with fallback range
+        powers_fallback = powers_arr[fallback_mask]
+        counts_fallback = counts_arr_corrected[fallback_mask]
+        
+        log_powers_fallback = np.log10(powers_fallback)
+        log_counts_fallback = np.log10(counts_fallback)
+        
+        slope, intercept, r_value, p_value, std_err = stats.linregress(log_powers_fallback, log_counts_fallback)
+        
+        log_fit_line = slope * log_powers_fallback + intercept
+        fit_counts_fallback = 10**log_fit_line
+        
+        # Calculate chi-squared
+        sigma_log = np.sqrt(counts_fallback / acq_time_s) / (counts_fallback * np.log(10))
+        chi2 = np.sum(((log_counts_fallback - log_fit_line) / sigma_log) ** 2)
+        ndf = len(counts_fallback) - 2
+        chi2_ndf_main = chi2 / ndf if ndf > 0 else np.nan
+        
+        # Update variables for plotting
+        fit_mask = fallback_mask
+        powers_fit = powers_fallback
+        counts_fit = counts_fallback
+        fit_counts = fit_counts_fallback
+        fit_range_used = f"{fallback_min:.1f} - {fallback_max:.1f} µW"
+        
+        print(f"✓ Fallback fit successful: {np.sum(fallback_mask)} points in range {fallback_min}-{fallback_max} µW")
+        
         print_fit_summary(slope, std_err, chi2_ndf_main, intercept, dark_count_rate_used)
+        print_chi2_explanation(acq_time_s=acq_time_s)
+        
+        # Calculate responsivity at 100 nW
+        responsivity_100nw = (10**intercept) * (0.1**slope)  # 0.1 µW = 100 nW
+        
+        # Generate structured result files for tracking and documentation
+        try:
+            
+            # Prepare results dictionary for output
+            results_dict = {
+                'slope': slope,
+                'std_err': std_err,
+                'chi2_ndf': chi2_ndf_main,
+                'intercept': intercept,
+                'dark_count_oot': dark_count_rate_used if dark_count_rate_used else 0,
+                'fit_max_uw': FIT_MAX_UW,
+                'fit_range_used': fit_range_used,
+                'fit_points': int(np.sum(fit_mask)),
+                'total_points': len(powers_arr),
+                'power_range': (np.min(powers_arr[powers_arr > 0]), np.max(powers_arr)),
+                'responsivity_100nw': responsivity_100nw,
+                'acq_time_s': acq_time_s
+            }
+            
+            # Generate output directory path and bias string
+            bias_str = bias_voltage if bias_voltage else "unknown"
+            output_base_dir = os.path.join(str(output_dir), 'results')
+            os.makedirs(output_base_dir, exist_ok=True)
+            
+            # Write results to file
+            write_bias_results(output_base_dir, bias_str, results_dict)
+            append_to_history_log(output_base_dir, bias_str, results_dict)
+            
+            print(f"\n✓ Results saved to {output_base_dir}/")
+            
+        except Exception as e:
+            print(f"Warning: Could not generate result files: {e}")
         
     except ValueError as e:
         print(f"Error during fitting: {e}")
@@ -356,67 +468,101 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
     powers_pos = powers_arr_plot[pos_mask]
     counts_orig_pos = counts_arr[pos_mask]
     counts_corr_pos = counts_arr_corrected[pos_mask]
+    errors_arr = np.sqrt(window_counts_arr) / acq_time_s
+    errors_pos = errors_arr[pos_mask]
     
     # Plot: Output Rate vs Power (with time window cut)
-    ax.scatter(powers_pos, counts_orig_pos, s=110, alpha=0.9, facecolors='white', edgecolors='black', linewidth=1.6,
-               marker='o', label='Signal (original)')
-    ax.scatter(powers_pos, counts_corr_pos, s=100, alpha=0.7, color='blue', edgecolors='black', linewidth=1.5,
-               label='Signal (dark-corrected)')
+    ax.errorbar(
+        powers_pos,
+        counts_orig_pos,
+        yerr=errors_pos,
+        fmt='o',
+        markersize=5.0,
+        alpha=0.9,
+        markerfacecolor='white',
+        markeredgecolor='black',
+        markeredgewidth=0.9,
+        ecolor='black',
+        elinewidth=1.2,
+        capsize=2,
+        label='Data (original)',
+    )
+    ax.errorbar(
+        powers_pos,
+        counts_corr_pos,
+        yerr=errors_pos,
+        fmt='o',
+        markersize=5.0,
+        alpha=0.7,
+        color='blue',
+        markeredgecolor='black',
+        markeredgewidth=0.9,
+        ecolor='blue',
+        elinewidth=1.0,
+        capsize=2,
+        label='Data (dark-corrected)',
+    )
     
     # Plot linear fit only over the fit range
     powers_fit_pos = powers_fit[powers_fit > 0]
     if len(powers_fit_pos) > 0:
         fit_counts_fit_pos = 10**(slope * np.log10(powers_fit_pos) + intercept)
         ax.plot(powers_fit_pos, fit_counts_fit_pos, color='darkgreen', linewidth=3.2, alpha=0.95,
-                label=f'Fit (low-power): n={slope:.3f}±{std_err:.3f}, χ²/ndf={chi2_ndf_main:.4f}')
+                label=f'Fit ({fit_range_used}): n={slope:.3f}±{std_err:.3f}, χ²/ndf={chi2_ndf_main:.4f}')
     
     # Add dark count line if available
     if dark_count_rate is not None:
         # Plot as horizontal dotted line spanning the power range
         power_range = [min(powers) * 0.5, max(powers) * 2]  # Extend slightly for visibility
         ax.plot([power_range[0], power_range[1]], [dark_count_rate, dark_count_rate], 
-               'r--', linewidth=2.5, label=f'Dark (Block 0: {dark_count_rate:.1f} cts/s)', alpha=0.8)
+                'r--', linewidth=2.5, label=f'Dark (0µW: {dark_count_rate:.1f} cts/s)', alpha=0.8)
         ax.set_xlim(power_range[0], power_range[1])
     
     ax.set_xlabel('Laser Power (µW)', fontsize=12)
-    ax.set_ylabel(f'Count Rate in {t_min_ns}-{t_max_ns} ns window (cts/s)', fontsize=12)
-    ax.set_title(f'SNSPD Output Rate vs Laser Power (Original Data)\n(Time window: {t_min_ns:.1f}-{t_max_ns:.1f} ns)', fontsize=13, weight='bold')
+    ax.set_ylabel(f'Count Rate in TOA window ({t_min_ns:.1f}-{t_max_ns:.1f} ns) (cts/s)', fontsize=12)
+    # ax.set_title(f'Count Rate vs Laser Power\n(TOA window: {t_min_ns:.0f}-{t_max_ns:.1f} ns)', fontsize=13, weight='bold')
     ax.grid(True, alpha=0.3)
     ax.set_xscale('log')
     ax.set_yscale('log')
-    ax.legend(loc='upper left', fontsize=10)
+    legend_title = f'{bias_voltage}' if bias_voltage else None
+    ax.legend(loc='upper left', fontsize=10, title=legend_title, title_fontsize=11)
     
-    # Create second figure: Dark count comparison (percentage relative to Block 0)
+    # Create second figure: Dark count comparison (percentage relative to 0µW)
     fig2, ax2 = plt.subplots(1, 1, figsize=(8, 6))
     
-    # Dark count estimate methods comparison (percentage relative to Block 0)
+    # Dark count estimate methods comparison (percentage relative to 0µW)
     oot_0_60 = np.array(estimated_dark_counts_early)
+    oot_80_100 = np.array(estimated_dark_counts_mid)
     oot_100_200 = np.array(estimated_dark_counts_late)
     
     # Calculate percentage deviations (with protection for zero or missing dark count)
     if dark_count_rate is not None and dark_count_rate > 0:
-        pct_0_60 = 100 * (oot_0_60 - dark_count_rate) / dark_count_rate
-        pct_100_200 = 100 * (oot_100_200 - dark_count_rate) / dark_count_rate
+        pct_0_60 = (oot_0_60 - dark_count_rate) / dark_count_rate
+        pct_80_100 = (oot_80_100 - dark_count_rate) / dark_count_rate
+        pct_100_200 = (oot_100_200 - dark_count_rate) / dark_count_rate
     else:
         pct_0_60 = np.zeros_like(oot_0_60)
+        pct_80_100 = np.zeros_like(oot_80_100)
         pct_100_200 = np.zeros_like(oot_100_200)
     
     ax2.scatter(powers_arr, pct_0_60, s=80, alpha=0.7, color='green', edgecolors='darkgreen', linewidth=1.5,
-                label='OOT_pre (0-60 ns)', marker='^')
+                label=r'OOT$_{pre}$', marker='^')
+    ax2.scatter(powers_arr, pct_80_100, s=80, alpha=0.7, color='orange', edgecolors='darkorange', linewidth=1.5,
+                label=r'OOT$_{mid}$', marker='o')
     ax2.scatter(powers_arr, pct_100_200, s=80, alpha=0.7, color='purple', edgecolors='indigo', linewidth=1.5,
-                label='OOT_post (100-200 ns)', marker='s')
+                label=r'OOT$_{post}$', marker='s')
     
-    # Reference line at 0% (Block 0)
-    ax2.axhline(y=0, color='red', linestyle='--', linewidth=2.5, label='Dark baseline (0%)', alpha=0.8)
+    # Reference line at 0% (0µW)
+    ax2.axhline(y=0, color='red', linestyle='--', linewidth=2.5, label='0µW', alpha=0.8)
     
     ax2.set_xlabel('Laser Power (µW)', fontsize=12)
-    ax2.set_ylabel('Deviation from Block 0 (%)', fontsize=12)
-    ax2.set_title('Dark Count Methods Comparison\n(% Deviation from Block 0)', fontsize=12, weight='bold')
+    ax2.set_ylabel('(OOT - 0µW)/0µW', fontsize=12)
+    # ax2.set_title('Dark Count Methods Comparison', fontsize=12, weight='bold')
     ax2.grid(True, alpha=0.3)
     ax2.set_xscale('log')
-    ax2.axhspan(-5, 5, alpha=0.1, color='green', label='±5% range')
-    ax2.legend(loc='best', fontsize=10)
-    ax2.set_ylim(-120, 30)
+    ax2.axhspan(-0.05, 0.05, alpha=0.1, color='green', label='±5% range')
+    legend_title = f'{bias_voltage}' if bias_voltage else None
+    ax2.legend(loc='best', fontsize=10, title=legend_title, title_fontsize=11)
     
     plt.tight_layout()
     
@@ -427,17 +573,22 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
         
         # Helper function for chi-square calculation
         def calc_chi2_ndf(y_obs, y_fit, n_params=2):
-            """Calculate reduced chi-squared with Poisson errors."""
+            """Calculate reduced chi-squared in log space using proper rate errors."""
             ndf = len(y_obs) - n_params
             if ndf <= 0:
                 return np.nan
-            sigma = np.sqrt(y_obs)
-            chi2 = np.sum(((y_obs - y_fit) / sigma) ** 2)
+            log_obs = np.log10(y_obs)
+            log_fit = np.log10(y_fit)
+            # For rates: σ_log = √(rate/t) / (rate * ln(10))
+            sigma_log = np.sqrt(y_obs / acq_time_s) / (y_obs * np.log(10))
+            chi2 = np.sum(((log_obs - log_fit) / sigma_log) ** 2)
             return chi2 / ndf
         
         # Prepare different dark count subtraction scenarios for low-power region only
         powers_lowp = powers_arr[fit_mask]
         counts_lowp = counts_arr[fit_mask]
+        window_counts_lowp = window_counts_arr[fit_mask]
+        sigma_lowp = np.sqrt(window_counts_lowp) / acq_time_s
         
         # Method 1: No dark count subtraction
         log_powers_no_dark = np.log10(powers_lowp)
@@ -447,7 +598,7 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
         fit_no_dark = 10**log_fit_no_dark
         chi2_ndf_no_dark = calc_chi2_ndf(counts_lowp, fit_no_dark)
         
-        # Method 2: Block 0 subtraction (only if Block 0 is available)
+        # Method 2: 0µW subtraction (only if 0µW is available)
         if dark_count_rate is not None:
             counts_lowp_block0 = np.maximum(counts_lowp - dark_count_rate, 0.1)  # Minimum 0.1 cts/s
             log_counts_block0 = np.log10(counts_lowp_block0)
@@ -456,7 +607,7 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
             fit_block0 = 10**log_fit_block0
             chi2_ndf_block0 = calc_chi2_ndf(counts_lowp_block0, fit_block0)
         else:
-            # No Block 0 available - set to None
+            # No 0µW available - set to None
             slope_block0 = std_err_block0 = chi2_ndf_block0 = None
             counts_lowp_block0 = fit_block0 = None
         
@@ -469,7 +620,16 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
         fit_oot_0_60 = 10**log_fit_oot_0_60
         chi2_ndf_oot_0_60 = calc_chi2_ndf(counts_lowp_oot_0_60, fit_oot_0_60)
         
-        # Method 4: OOT 100-200 ns subtraction
+        # Method 4: OOT 80-100 ns subtraction
+        oot_mid_lowp = estimated_dark_arr_mid[fit_mask]
+        counts_lowp_oot_mid = np.maximum(counts_lowp - oot_mid_lowp, 0.1)  # Minimum 0.1 cts/s
+        log_counts_oot_mid = np.log10(counts_lowp_oot_mid)
+        slope_oot_mid, intercept_oot_mid, r_oot_mid, _, std_err_oot_mid = stats.linregress(log_powers_no_dark, log_counts_oot_mid)
+        log_fit_oot_mid = slope_oot_mid * log_powers_no_dark + intercept_oot_mid
+        fit_oot_mid = 10**log_fit_oot_mid
+        chi2_ndf_oot_mid = calc_chi2_ndf(counts_lowp_oot_mid, fit_oot_mid)
+        
+        # Method 5: OOT 100-200 ns subtraction
         oot_late_lowp = estimated_dark_arr_late[fit_mask]
         counts_lowp_oot_late = np.maximum(counts_lowp - oot_late_lowp, 0.1)  # Minimum 0.1 cts/s
         log_counts_oot_late = np.log10(counts_lowp_oot_late)
@@ -478,36 +638,111 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
         fit_oot_late = 10**log_fit_oot_late
         chi2_ndf_oot_late = calc_chi2_ndf(counts_lowp_oot_late, fit_oot_late)
         
-        # Plot data and fits
-        ax3.scatter(powers_lowp, counts_lowp, s=120, alpha=0.4, color='gray', edgecolors='black',
-                    linewidth=1.5, label='Original data (no correction)', zorder=1)
+        # Plot data and fits (with statistical error bars)
+        ax3.errorbar(
+            powers_lowp,
+            counts_lowp,
+            yerr=sigma_lowp,
+            fmt='o',
+            markersize=4.5,
+            alpha=0.4,
+            color='gray',
+            markeredgecolor='black',
+            markeredgewidth=0.8,
+            ecolor='gray',
+            elinewidth=1.0,
+            capsize=2,
+            label='data (no correction)',
+            zorder=1,
+        )
         if dark_count_rate is not None:
-            ax3.scatter(powers_lowp, counts_lowp_block0, s=120, alpha=0.7, color='darkblue', edgecolors='navy', 
-                        linewidth=1.5, label='Dark subtracted', zorder=5)
-        ax3.scatter(powers_lowp, counts_lowp_oot_0_60, s=80, alpha=0.5, color='green', edgecolors='darkgreen', 
-                    linewidth=1.5, marker='d', label='OOT_pre subtracted', zorder=3)
-        ax3.scatter(powers_lowp, counts_lowp_oot_late, s=80, alpha=0.5, color='purple', edgecolors='indigo', 
-                    linewidth=1.5, marker='s', label='OOT_post subtracted', zorder=4)
+            ax3.errorbar(
+                powers_lowp,
+                counts_lowp_block0,
+                yerr=sigma_lowp,
+                fmt='o',
+                markersize=4.5,
+                alpha=0.7,
+                color='darkblue',
+                markeredgecolor='navy',
+                markeredgewidth=0.8,
+                ecolor='darkblue',
+                elinewidth=1.0,
+                capsize=2,
+                label='0µW subtracted',
+                zorder=5,
+            )
+        ax3.errorbar(
+            powers_lowp,
+            counts_lowp_oot_0_60,
+            yerr=sigma_lowp,
+            fmt='d',
+            markersize=4.5,
+            alpha=0.5,
+            color='green',
+            markeredgecolor='darkgreen',
+            markeredgewidth=0.8,
+            ecolor='green',
+            elinewidth=1.0,
+            capsize=2,
+            label=r'OOT$_{pre}$ (0-60ns) sub',
+            zorder=3,
+        )
+        ax3.errorbar(
+            powers_lowp,
+            counts_lowp_oot_mid,
+            yerr=sigma_lowp,
+            fmt='^',
+            markersize=4.5,
+            alpha=0.5,
+            color='orange',
+            markeredgecolor='darkorange',
+            markeredgewidth=0.8,
+            ecolor='orange',
+            elinewidth=1.0,
+            capsize=2,
+            label=r'OOT$_{mid}$ (80-100ns) sub',
+            zorder=4,
+        )
+        ax3.errorbar(
+            powers_lowp,
+            counts_lowp_oot_late,
+            yerr=sigma_lowp,
+            fmt='s',
+            markersize=4.5,
+            alpha=0.5,
+            color='purple',
+            markeredgecolor='indigo',
+            markeredgewidth=0.8,
+            ecolor='purple',
+            elinewidth=1.0,
+            capsize=2,
+            label=r'OOT$_{post}$ (100-200ns) sub',
+            zorder=5,
+        )
         
         # Plot fit lines
         ax3.plot(powers_lowp, fit_no_dark, 'k--', linewidth=2.5, alpha=0.6,
-                 label=f'No corr: n={slope_no_dark:.3f}±{std_err_no_dark:.3f}')
+             label=f'No corr: n={slope_no_dark:.3f}±{std_err_no_dark:.3f}, χ²/ndf={chi2_ndf_no_dark:.3f}')
         if dark_count_rate is not None:
             ax3.plot(powers_lowp, fit_block0, 'b-', linewidth=3, 
-                     label=f'Dark: n={slope_block0:.3f}±{std_err_block0:.3f}')
+                     label=f'0µW: n={slope_block0:.3f}±{std_err_block0:.3f}, χ²/ndf={chi2_ndf_block0:.3f}')
         ax3.plot(powers_lowp, fit_oot_0_60, 'green', linewidth=2.5, linestyle='-.', alpha=0.8,
-                 label=f'OOT_pre: n={slope_oot_0_60:.3f}±{std_err_oot_0_60:.3f}')
+             label=fr'OOT$_{{pre}}$ (0-60ns): n={slope_oot_0_60:.3f}±{std_err_oot_0_60:.3f}, χ²/ndf={chi2_ndf_oot_0_60:.3f}')
+        ax3.plot(powers_lowp, fit_oot_mid, 'orange', linewidth=2.5, linestyle=(0, (3, 1, 1, 1)), alpha=0.8,
+             label=fr'OOT$_{{mid}}$ (80-100ns): n={slope_oot_mid:.3f}±{std_err_oot_mid:.3f}, χ²/ndf={chi2_ndf_oot_mid:.3f}')
         ax3.plot(powers_lowp, fit_oot_late, 'purple', linewidth=2.5, linestyle=':', alpha=0.8,
-                 label=f'OOT_post: n={slope_oot_late:.3f}±{std_err_oot_late:.3f}')
+             label=fr'OOT$_{{post}}$ (100-200ns): n={slope_oot_late:.3f}±{std_err_oot_late:.3f}, χ²/ndf={chi2_ndf_oot_late:.3f}')
         
         ax3.set_xlabel('Laser Power (µW)', fontsize=13)
         ax3.set_ylabel('Count Rate (cts/s)', fontsize=13)
-        ax3.set_title(f'Effect of Dark Count Subtraction on Power Law Fit\n(Low-Power Region: < {fit_max:.2e} µW)', 
-                      fontsize=13, weight='bold')
+        ax3.set_title(f'Dark Count Subtraction Comparison\n(Low-Power Region: < {FIT_MAX_UW:.2e} µW)', 
+                  fontsize=13, weight='bold')
         ax3.grid(True, alpha=0.3)
         ax3.set_xscale('log')
         ax3.set_yscale('log')
-        ax3.legend(loc='upper left', fontsize=10, framealpha=0.95)
+        legend_title = f'{bias_voltage}' if bias_voltage else None
+        ax3.legend(loc='upper left', fontsize=10, framealpha=0.95, title=legend_title, title_fontsize=11)
         
         plt.tight_layout()
     except Exception as e:
@@ -518,16 +753,21 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
     # Create fourth figure: Difference between OOT regions vs power (percent)
     fig4, ax4 = plt.subplots(1, 1, figsize=(8, 6))
     if dark_count_rate is not None and dark_count_rate > 0:
-        diff_oot_pct = 100 * (oot_0_60 - oot_100_200) / dark_count_rate
+        diff_oot_pct = 100 * (oot_0_60 - oot_80_100) / dark_count_rate
     else:
-        diff_oot_pct = oot_0_60 - oot_100_200
+        diff_oot_pct = oot_0_60 - oot_80_100
     ax4.scatter(powers_arr, diff_oot_pct, s=90, alpha=0.8, color='teal', edgecolors='black', linewidth=1.2)
     ax4.axhline(y=0, color='red', linestyle='--', linewidth=2, alpha=0.8)
     ax4.set_xlabel('Laser Power (µW)', fontsize=12)
-    ax4.set_ylabel('OOT_pre - OOT_post (% of Dark)', fontsize=12)
-    ax4.set_title('Difference Between OOT Regions vs Power', fontsize=12, weight='bold')
+    ax4.set_ylabel(r'(OOT$_{pre}$ - OOT$_{mid}$) / 0µW', fontsize=12)
+    # ax4.set_title(r'Difference Between OOT$_{pre}$ and OOT$_{mid}$ vs Power', fontsize=12, weight='bold')
     ax4.grid(True, alpha=0.3)
     ax4.set_xscale('log')
+    
+    # Add bias voltage as text in upper right since this plot doesn't have a legend
+    if bias_voltage:
+        ax4.text(0.98, 0.95, f'{bias_voltage}', transform=ax4.transAxes, fontsize=12, weight='bold',
+                 verticalalignment='top', horizontalalignment='right')
     
     print(f"\nRegion 1: 0-60 ns (broad pre-signal baseline)")
     print(f"  Mean: {np.mean(oot_0_60):.2f} cts/s")
@@ -536,25 +776,25 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
     print(f"  Max: {np.max(oot_0_60):.2f} cts/s")
     
     if dark_count_rate is not None:
-        print(f"\nBlock 0 baseline (0 µW): {dark_count_rate:.2f} cts/s")
-        print(f"\nComparison vs Block 0:")
+        print(f"\n0µW baseline (0 µW): {dark_count_rate:.2f} cts/s")
+        print(f"\nComparison vs 0µW:")
         print(f"  0-60 ns:   {np.mean(oot_0_60) - dark_count_rate:+.2f} cts/s ({100*(np.mean(oot_0_60) - dark_count_rate)/dark_count_rate:+.1f}%)")
-        print(f"\nBlock 0 baseline (0 µW): {dark_count_rate:.2f} cts/s")
+        print(f"\n0µW baseline (0 µW): {dark_count_rate:.2f} cts/s")
         mean_diff = np.mean(estimated_dark_arr_early) - dark_count_rate
         mean_pct = 100 * mean_diff / dark_count_rate
         print(f"Difference from baseline (mean): {mean_diff:.2f} cts/s ({mean_pct:+.1f}%)")
         
         # Per-measurement percentage comparison
         pct_diff = 100 * (estimated_dark_arr_early - dark_count_rate) / dark_count_rate
-        print(f"\nPer-measurement OOT vs Block 0 comparison:")
+        print(f"\nPer-measurement OOT vs 0µW comparison:")
         print(f"  Mean percentage difference: {np.mean(pct_diff):+.1f}%")
         print(f"  Std Dev: {np.std(pct_diff):.1f}%")
         print(f"  Min: {np.min(pct_diff):+.1f}%")
         print(f"  Max: {np.max(pct_diff):+.1f}%")
         
         # Detailed comparison table
-        print(f"\nDetailed OOT Dark Count vs Block 0 Baseline:")
-        print(f"{'Power (µW)':<12} {'OOT Est (cts/s)':<18} {'Block 0 (cts/s)':<18} {'Diff (cts/s)':<15} {'Diff (%)':<10}")
+        print(f"\nDetailed OOT Dark Count vs 0µW Baseline:")
+        print(f"{'Power (µW)':<12} {'OOT Est (cts/s)':<18} {'0µW (cts/s)':<18} {'Diff (cts/s)':<15} {'Diff (%)':<10}")
         print(f"{'-'*73}")
         for i in range(len(powers_arr)):
             oot_val = estimated_dark_arr_early[i]
@@ -563,6 +803,66 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
             print(f"{powers_arr[i]:<12.4e} {oot_val:<18.2f} {dark_count_rate:<18.2f} {diff_val:<15.2f} {diff_pct:+.1f}%")
     
     plt.tight_layout()
+    
+    # Create fifth figure: Histograms for selected power levels in signal region
+    # Select up to 25 power levels evenly distributed
+    power_indices_to_plot = []
+    if len(powers_arr) > 0:
+        if len(powers_arr) <= 25:
+            # If we have 25 or fewer points, show all
+            power_indices_to_plot = list(range(len(powers_arr)))
+        else:
+            # Select 25 evenly distributed indices
+            power_indices_to_plot = np.linspace(0, len(powers_arr) - 1, 25, dtype=int).tolist()
+    
+    if power_indices_to_plot:
+        num_subplots = len(power_indices_to_plot)
+        # Use 5 columns, calculate rows needed
+        ncols = 5
+        nrows = (num_subplots + ncols - 1) // ncols
+        fig5, axes5 = plt.subplots(nrows, ncols, figsize=(4*ncols, 3*nrows))
+        
+        # Flatten axes array for easier indexing
+        if nrows == 1:
+            axes5_flat = axes5 if ncols == 1 else axes5.flatten()
+        else:
+            axes5_flat = axes5.flatten()
+        
+        # Get time axis for x-axis labels (in nanoseconds)
+        time_axis_ns = np.arange(len(histograms[0])) * resolution_s * 1e9
+        
+        # Cut directly to signal region (no buffer)
+        bin_min_plot = int(t_min_ns * 1e-9 / resolution_s)
+        bin_max_plot = int(t_max_ns * 1e-9 / resolution_s)
+        bin_min_plot = max(0, bin_min_plot)
+        bin_max_plot = min(len(histograms[0]), bin_max_plot)
+        
+        for ax_idx, power_idx in enumerate(power_indices_to_plot):
+            if power_idx < len(histograms):
+                hist = histograms[power_idx]
+                power_val = powers_arr[power_idx] if power_idx < len(powers_arr) else 0
+                
+                # Plot histogram (signal region only)
+                ax = axes5_flat[ax_idx]
+                time_region = time_axis_ns[bin_min_plot:bin_max_plot]
+                hist_region = hist[bin_min_plot:bin_max_plot]
+                
+                ax.plot(time_region, hist_region, linewidth=1.5, color='blue', alpha=0.7)
+                ax.fill_between(time_region, hist_region, alpha=0.3, color='blue')
+                
+                ax.set_xlabel('Time (ns)', fontsize=9)
+                if ax_idx % ncols == 0:
+                    ax.set_ylabel('Counts', fontsize=9)
+                ax.set_title(f'{power_val:.2e} µW', fontsize=10, weight='bold')
+                ax.grid(True, alpha=0.3)
+                ax.tick_params(labelsize=8)
+        
+        # Hide unused subplots
+        for ax_idx in range(len(power_indices_to_plot), len(axes5_flat)):
+            axes5_flat[ax_idx].set_visible(False)
+        
+        fig5.suptitle(f'Time-of-Arrival Histograms - Signal Region (Bias: {bias_voltage})', fontsize=13, weight='bold', y=1.00)
+        plt.tight_layout()
     
     # Save figures
     output_path = output_dir / f"1_count_rate_vs_power_original_{t_min_ns:.1f}-{t_max_ns:.1f}ns.png"
@@ -581,33 +881,151 @@ def plot_count_rate_vs_power(header, histograms, power_data, output_dir, time_wi
     fig4.savefig(output_path4, dpi=200, bbox_inches='tight')
     print(f"✓ Plot 4 saved: {output_path4}")
     
+    if power_indices_to_plot:
+        output_path5 = output_dir / f"5_histograms_power_comparison_{t_min_ns:.1f}-{t_max_ns:.1f}ns.png"
+        fig5.savefig(output_path5, dpi=200, bbox_inches='tight')
+        print(f"✓ Plot 5 saved: {output_path5}")
+
+    # Save analysis summary to JSON for combined plotting
+    try:
+        def _safe_float(val):
+            try:
+                return float(val)
+            except Exception:
+                return None
+
+        results_dict_json = {
+            'slope': _safe_float(slope),
+            'std_err': _safe_float(std_err),
+            'chi2_ndf': _safe_float(chi2_ndf_main),
+            'intercept': _safe_float(intercept),
+            'dark_count_oot': _safe_float(dark_count_rate_used) if dark_count_rate_used is not None else None,
+            'fit_max_uw': _safe_float(FIT_MAX_UW),
+            'fit_range_used': fit_range_used,
+            'fit_points': int(np.sum(fit_mask)),
+            'total_points': int(len(powers_arr)),
+            'power_range': [
+                _safe_float(np.min(powers_arr[powers_arr > 0])),
+                _safe_float(np.max(powers_arr)),
+            ],
+            'responsivity_100nw': _safe_float(responsivity_100nw),
+            'acq_time_s': _safe_float(acq_time_s),
+        }
+
+        analysis_summary = {
+            'bias_voltage': bias_voltage,
+            'source_file': str(source_file) if source_file else None,
+            'output_dir': str(output_dir),
+            'acquisition_time_s': _safe_float(acq_time_s),
+            'time_window_ns': {
+                't_min': _safe_float(t_min_ns),
+                't_max': _safe_float(t_max_ns),
+                'width': _safe_float(signal_width_ns),
+            },
+            'dark_subtraction': {
+                'method': 'OOT_pre per_measurement',
+                'dark_count_rate_used': _safe_float(dark_count_rate_used) if dark_count_rate_used is not None else None,
+                'dark_count_rate_block0': _safe_float(dark_count_rate) if dark_count_rate is not None else None,
+            },
+            'fit': {
+                'slope': _safe_float(slope),
+                'intercept': _safe_float(intercept),
+                'std_err': _safe_float(std_err),
+                'chi2_ndf': _safe_float(chi2_ndf_main),
+                'fit_max_uw': _safe_float(FIT_MAX_UW),
+                'fit_range_used': fit_range_used,
+                'fit_mask': fit_mask.tolist(),
+                'fit_powers': powers_fit.tolist(),
+            },
+            'results': results_dict_json,
+            'plot_paths': {
+                'plot1': str(output_path),
+                'plot2': str(output_path2),
+                'plot3': str(output_path3),
+                'plot4': str(output_path4),
+            },
+            'plot1_data': {
+                'powers_uw': powers_pos.tolist(),
+                'counts_original': counts_orig_pos.tolist(),
+                'counts_corrected': counts_corr_pos.tolist(),
+                'errors': errors_pos.tolist(),
+            },
+            'plot2_data': {
+                'powers_uw': powers_arr.tolist(),
+                'pct_oot_pre': pct_0_60.tolist(),
+                'pct_oot_mid': pct_80_100.tolist(),
+                'pct_oot_post': pct_100_200.tolist(),
+            },
+            'plot3_data': {
+                'no_dark': {
+                    'slope': _safe_float(locals().get('slope_no_dark')),
+                    'std_err': _safe_float(locals().get('std_err_no_dark')),
+                    'chi2_ndf': _safe_float(locals().get('chi2_ndf_no_dark')),
+                },
+                'block0': {
+                    'slope': _safe_float(locals().get('slope_block0')),
+                    'std_err': _safe_float(locals().get('std_err_block0')),
+                    'chi2_ndf': _safe_float(locals().get('chi2_ndf_block0')),
+                },
+                'oot_pre': {
+                    'slope': _safe_float(locals().get('slope_oot_0_60')),
+                    'std_err': _safe_float(locals().get('std_err_oot_0_60')),
+                    'chi2_ndf': _safe_float(locals().get('chi2_ndf_oot_0_60')),
+                },
+                'oot_mid': {
+                    'slope': _safe_float(locals().get('slope_oot_mid')),
+                    'std_err': _safe_float(locals().get('std_err_oot_mid')),
+                    'chi2_ndf': _safe_float(locals().get('chi2_ndf_oot_mid')),
+                },
+                'oot_post': {
+                    'slope': _safe_float(locals().get('slope_oot_late')),
+                    'std_err': _safe_float(locals().get('std_err_oot_late')),
+                    'chi2_ndf': _safe_float(locals().get('chi2_ndf_oot_late')),
+                },
+            },
+            'plot4_data': {
+                'powers_uw': powers_arr.tolist(),
+                'diff_oot_pct': diff_oot_pct.tolist(),
+            },
+        }
+
+        json_path = output_dir / 'analysis_summary.json'
+        with open(json_path, 'w') as f:
+            json.dump(analysis_summary, f, indent=2)
+        print(f"✓ JSON summary saved: {json_path}")
+    except Exception as e:
+        print(f"Warning: Could not save JSON summary: {e}")
+    
     # Print summary
     print(f"\n=== DARK COUNT ANALYSIS SUMMARY ===")
-    print(f"Signal window: {t_min_ns:.1f}-{t_max_ns:.1f} ns ({signal_width_ns:.1f} ns width)")
+    print(f"TOA window: {t_min_ns:.1f}-{t_max_ns:.1f} ns ({signal_width_ns:.1f} ns width)")
     print(f"Fit range: 0 - {FIT_MAX_UW:.2e} µW ({np.sum(fit_mask)} points)")
-    print(f"\nRegion 1: OOT_pre (0-60 ns)")
+    print("\nRegion 1: OOT_{pre} (0-60 ns)")
     print(f"  Mean: {np.mean(oot_0_60):.2f} cts/s")
     if dark_count_rate is not None:
-        print(f"  Deviation from Block 0: {100*(np.mean(oot_0_60) - dark_count_rate)/dark_count_rate:+.1f}%")
-        print(f"\nDark Baseline (Block 0): {dark_count_rate:.2f} cts/s")
+        print(f"  Deviation from 0µW: {100*(np.mean(oot_0_60) - dark_count_rate)/dark_count_rate:+.1f}%")
+        print(f"\nDark Baseline (0µW): {dark_count_rate:.2f} cts/s")
     else:
-        print(f"  Note: No Block 0 (dark count) measurement available in this sweep")
+        print(f"  Note: No 0µW (dark count) measurement available in this sweep")
     print(f"\n=== POWER LAW FIT COMPARISON ===")
     print(f"No dark correction:    n = {slope_no_dark:.4f} ± {std_err_no_dark:.4f}, chi^2/ndf = {chi2_ndf_no_dark:.4f}")
     if dark_count_rate is not None:
-        print(f"Block 0 subtraction:   n = {slope_block0:.4f} ± {std_err_block0:.4f}, chi^2/ndf = {chi2_ndf_block0:.4f}")
-    print(f"OOT_pre subtract:      n = {slope_oot_0_60:.4f} ± {std_err_oot_0_60:.4f}, chi^2/ndf = {chi2_ndf_oot_0_60:.4f} [MAIN FIT - matches combined plot]")
-    print(f"OOT_post subtract:     n = {slope_oot_late:.4f} ± {std_err_oot_late:.4f}, chi^2/ndf = {chi2_ndf_oot_late:.4f}")
-    print(f"\nNote: All OOT methods scale their respective time windows to the {signal_width_ns:.1f} ns signal window")
-    print(f"  OOT_pre (0-60 ns)   -> 60 ns scaled to {signal_width_ns:.1f} ns")
-    print(f"  OOT_post (100-200 ns) -> 100 ns scaled to {signal_width_ns:.1f} ns")
-    print(f"\nMain analysis uses: OOT_pre per-measurement subtraction (chi^2/ndf = {chi2_ndf_oot_0_60:.4f})")
+        print(f"0µW subtraction:       n = {slope_block0:.4f} ± {std_err_block0:.4f}, chi^2/ndf = {chi2_ndf_block0:.4f}")
+    print(f"OOT_{{pre}} subtract:      n = {slope_oot_0_60:.4f} ± {std_err_oot_0_60:.4f}, chi^2/ndf = {chi2_ndf_oot_0_60:.4f}")
+    print(f"OOT_{{mid}} subtract:      n = {slope_oot_mid:.4f} ± {std_err_oot_mid:.4f}, chi^2/ndf = {chi2_ndf_oot_mid:.4f} [MAIN FIT - matches combined plot]")
+    print(f"OOT_{{post}} subtract:     n = {slope_oot_late:.4f} ± {std_err_oot_late:.4f}, chi^2/ndf = {chi2_ndf_oot_late:.4f}")
+    print(f"\nNote: All OOT methods scale their respective time windows to the {signal_width_ns:.1f} ns TOA window")
+    print(f"  OOT_{{pre}} (0-60 ns)    -> 60 ns scaled to {signal_width_ns:.1f} ns")
+    print(f"  OOT_{{mid}} (80-100 ns)  -> 20 ns scaled to {signal_width_ns:.1f} ns")
+    print(f"  OOT_{{post}} (100-200 ns) -> 100 ns scaled to {signal_width_ns:.1f} ns")
+    print(f"\nMain analysis uses: OOT_{{mid}} per-measurement subtraction (chi^2/ndf = {chi2_ndf_oot_mid:.4f})")
     print(f"This comparison figure shows alternative methods for reference")
     
     plt.close('all')  # Close all figures to prevent hanging
     
 
     return fig
+
 
 def get_curve_names(header, filepath=None):
     """Extract or generate meaningful curve names.
@@ -797,6 +1215,93 @@ def main():
         if workspace_attenuation.exists():
             power_data_for_plot = load_power_data(workspace_attenuation)
         
+        # Plot full-range histograms (linear + log)
+        plot_output_dir = custom_output_dir if custom_output_dir else filepath.parent
+        time_bins_full = np.arange(len(histograms[0])) * resolution * 1e9  # Convert to ns
+        full_start_ns = 0.0
+        full_end_ns = time_bins_full[-1] if len(time_bins_full) > 0 else 0.0
+
+        fig_full, ax_full = plt.subplots(figsize=(14, 8))
+
+        for i, hist in enumerate(histograms):
+            # Skip empty curves
+            if np.sum(hist) == 0:
+                continue
+
+            # Get count rate if available
+            count_rate = header.get('HistResDscr_HistCountRate', {}).get(i, 'N/A')
+
+            # Get block ID and power for label (without time)
+            block_id = curve_indices.get(i, None)
+            power_val = power_data_for_plot.get(block_id, None) if block_id is not None else None
+
+            # Create label with Power and Count Rate (no block number in legend)
+            if block_id == 0:
+                label = f"0µW ({count_rate} cts/s)"
+            elif block_id is not None and power_val is not None:
+                label = f"{power_val:.4f} µW ({count_rate} cts/s)"
+            elif block_id is not None:
+                label = f"Block {block_id} ({count_rate} cts/s)"
+            else:
+                label = f"Curve {i} ({count_rate} cts/s)"
+
+            ax_full.plot(time_bins_full, hist, linewidth=1.0, alpha=0.7, label=label)
+
+        ax_full.set_xlabel('TOA (Time of Arrival) (ns)', fontsize=12)
+        ax_full.set_ylabel('Counts', fontsize=12)
+        ax_full.set_title(
+            f'TCSPC Histograms (Full TOA Range: {full_start_ns:.1f}-{full_end_ns:.1f} ns)',
+            fontsize=14,
+            weight='bold',
+        )
+        ax_full.grid(True, alpha=0.3)
+        ax_full.legend(loc='upper right', fontsize=7, ncol=2)
+
+        plt.tight_layout()
+
+        output_path_full = plot_output_dir / "0_histograms_full_linear.png"
+        fig_full.savefig(output_path_full, dpi=200, bbox_inches='tight')
+        print(f"\n✓ Full-range linear histogram saved: {output_path_full}")
+
+        fig_full_log, ax_full_log = plt.subplots(figsize=(14, 8))
+        for i, hist in enumerate(histograms):
+            if np.sum(hist) == 0:
+                continue
+
+            count_rate = header.get('HistResDscr_HistCountRate', {}).get(i, 'N/A')
+            block_id = curve_indices.get(i, None)
+            power_val = power_data_for_plot.get(block_id, None) if block_id is not None else None
+
+            if block_id == 0:
+                label = f"0µW ({count_rate} cts/s)"
+            elif block_id is not None and power_val is not None:
+                label = f"{power_val:.4f} µW ({count_rate} cts/s)"
+            elif block_id is not None:
+                label = f"Block {block_id} ({count_rate} cts/s)"
+            else:
+                label = f"Curve {i} ({count_rate} cts/s)"
+
+            ax_full_log.plot(time_bins_full, hist, linewidth=1.0, alpha=0.7, label=label)
+
+        ax_full_log.set_xlabel('TOA (Time of Arrival) (ns)', fontsize=12)
+        ax_full_log.set_ylabel('Counts', fontsize=12)
+        ax_full_log.set_title(
+            f'TCSPC Histograms - Log Scale (Full TOA Range: {full_start_ns:.1f}-{full_end_ns:.1f} ns)',
+            fontsize=14,
+            weight='bold',
+        )
+        ax_full_log.set_yscale('log')
+        ax_full_log.grid(True, alpha=0.3, which='both')
+        ax_full_log.legend(loc='upper right', fontsize=7, ncol=2)
+
+        plt.tight_layout()
+
+        output_path_full_log = plot_output_dir / "0_histograms_full_log.png"
+        fig_full_log.savefig(output_path_full_log, dpi=200, bbox_inches='tight')
+        print(f"✓ Full-range log histogram saved: {output_path_full_log}")
+        plt.close(fig_full_log)
+        plt.close(fig_full)
+
         # Define signal region (time window cut)
         t_min_ns, t_max_ns = 75.0, 79.0
         bin_min = int(t_min_ns * 1e-9 / resolution)
@@ -825,7 +1330,9 @@ def main():
             power_val = power_data_for_plot.get(block_id, None) if block_id else None
             
             # Create label with Power and Count Rate (no block number in legend)
-            if block_id is not None and power_val is not None:
+            if block_id == 0:
+                label = f"0µW ({count_rate} cts/s)"
+            elif block_id is not None and power_val is not None:
                 label = f"{power_val:.4f} µW ({count_rate} cts/s)"
             elif block_id is not None:
                 label = f"Block {block_id} ({count_rate} cts/s)"
@@ -835,16 +1342,15 @@ def main():
             # Plot with label (zoomed to signal region)
             ax.plot(time_bins, hist_zoomed, linewidth=1.0, alpha=0.7, label=label)
         
-        ax.set_xlabel('Time (ns)', fontsize=12)
+        ax.set_xlabel('TOA (Time of Arrival) (ns)', fontsize=12)
         ax.set_ylabel('Counts', fontsize=12)
-        ax.set_title(f'TCSPC Histograms (Signal Region: {t_min_ns:.1f}-{t_max_ns:.1f} ns)', fontsize=14, weight='bold')
+        ax.set_title(f'TCSPC Histograms (TOA window: {t_min_ns:.1f}-{t_max_ns:.1f} ns)', fontsize=14, weight='bold')
         ax.grid(True, alpha=0.3)
         ax.legend(loc='upper right', fontsize=7, ncol=2)
         
         plt.tight_layout()
         
         # Save linear-scale histogram
-        plot_output_dir = custom_output_dir if custom_output_dir else filepath.parent
         output_path = plot_output_dir / f"0_histograms_linear_{t_min_ns:.1f}-{t_max_ns:.1f}ns.png"
         fig.savefig(output_path, dpi=200, bbox_inches='tight')
         print(f"\n✓ Linear histogram saved: {output_path}")
@@ -870,7 +1376,9 @@ def main():
             power_val = power_data_for_plot.get(block_id, None) if block_id else None
             
             # Create label with Power and Count Rate (no block number in legend)
-            if block_id is not None and power_val is not None:
+            if block_id == 0:
+                label = f"0µW ({count_rate} cts/s)"
+            elif block_id is not None and power_val is not None:
                 label = f"{power_val:.4f} µW ({count_rate} cts/s)"
             elif block_id is not None:
                 label = f"Block {block_id} ({count_rate} cts/s)"
@@ -880,9 +1388,9 @@ def main():
             # Plot with label (zoomed to signal region)
             ax_log.plot(time_bins, hist_zoomed, linewidth=1.0, alpha=0.7, label=label)
         
-        ax_log.set_xlabel('Time (ns)', fontsize=12)
+        ax_log.set_xlabel('TOA (Time of Arrival) (ns)', fontsize=12)
         ax_log.set_ylabel('Counts', fontsize=12)
-        ax_log.set_title(f'TCSPC Histograms - Log Scale (Signal Region: {t_min_ns:.1f}-{t_max_ns:.1f} ns)', fontsize=14, weight='bold')
+        ax_log.set_title(f'TCSPC Histograms - Log Scale (TOA window: {t_min_ns:.1f}-{t_max_ns:.1f} ns)', fontsize=14, weight='bold')
         ax_log.set_yscale('log')
         ax_log.grid(True, alpha=0.3, which='both')
         ax_log.legend(loc='upper right', fontsize=7, ncol=2)
@@ -897,14 +1405,22 @@ def main():
         # Create count rate vs power plot
         plot_output_dir = custom_output_dir if custom_output_dir else filepath.parent
         if power_data_for_plot:
+            # Extract bias voltage from filename for result file naming
+            filename = filepath.stem
+            bias_match = re.search(r'(\d+mV)', filename)
+            bias_voltage = bias_match.group(1) if bias_match else None
+            
             plot_count_rate_vs_power(
                 header,
                 histograms,
                 power_data_for_plot,
                 plot_output_dir,
+                time_window_ns=(T_MIN_NS, T_MAX_NS),
+                bias_voltage=bias_voltage,
                 block0_ref_file=block0_ref_file,
                 block0_ref_block=block0_ref_block,
                 debug=debug_flag,
+                source_file=filepath,
             )
         
         if plot_flag:

@@ -1066,79 +1066,57 @@ def main():
             if lower_stats:
                 powers_lower = np.array(sorted(lower_stats.keys()))
                 means_lower = np.array([lower_stats[p]['mean'] for p in sorted(lower_stats.keys())])
+                
+                # Get dark count rate (0nW power)
+                dark_count_lower = lower_stats.get(0, {}).get('mean', 0)
+                
+                # Calculate dark count subtracted values
+                means_lower_subtracted = means_lower - dark_count_lower
+                
                 # Filter out zero or negative values for log-log plot
                 mask_lower = (powers_lower > 0) & (means_lower > 0)
+                mask_lower_subtracted = (powers_lower > 0) & (means_lower_subtracted > 0)
+                
+                # Plot original data
                 ax_power_lower.plot(powers_lower[mask_lower], means_lower[mask_lower], 'o', 
-                                   label=f'{bias_mv:.1f} mV', color=plot_color, alpha=0.9, markersize=6)
+                                   label=f'{bias_mv:.1f} mV (original)', color=plot_color, alpha=0.5, markersize=6)
                 
-                # Linear fit below 2500nW
-                fit_below_mask = (powers_lower < 2500) & (powers_lower > 0) & (means_lower > 0)
-                if np.sum(fit_below_mask) >= 2:
-                    fit_powers_below = powers_lower[fit_below_mask]
-                    fit_means_below = means_lower[fit_below_mask]
-                    log_powers_below = np.log10(fit_powers_below)
-                    log_means_below = np.log10(fit_means_below)
-                    slope_below, intercept_below = np.polyfit(log_powers_below, log_means_below, 1)
-                    fit_line_powers_below = np.logspace(np.log10(fit_powers_below.min()), np.log10(fit_powers_below.max()), 100)
-                    fit_line_means_below = 10**(slope_below * np.log10(fit_line_powers_below) + intercept_below)
-                    ax_power_lower.plot(fit_line_powers_below, fit_line_means_below, ':', 
-                                      color=plot_color, alpha=0.6, linewidth=2,
-                                      label=f'{bias_mv:.1f} mV <2500nW (n={slope_below:.2f})')
+                # Plot dark count subtracted data
+                ax_power_lower.plot(powers_lower[mask_lower_subtracted], means_lower_subtracted[mask_lower_subtracted], 's', 
+                                   label=f'{bias_mv:.1f} mV (dark subtracted)', color=plot_color, alpha=0.9, markersize=6)
                 
-                # Linear fit from 2500nW to 10000nW
-                fit_mask = (powers_lower >= 2500) & (powers_lower <= 10000) & (powers_lower > 0) & (means_lower > 0)
-                if np.sum(fit_mask) >= 2:  # Need at least 2 points for fit
-                    fit_powers = powers_lower[fit_mask]
-                    fit_means = means_lower[fit_mask]
-                    # Linear fit in log-log space: log(y) = slope * log(x) + intercept
-                    log_powers = np.log10(fit_powers)
-                    log_means = np.log10(fit_means)
-                    slope, intercept = np.polyfit(log_powers, log_means, 1)
-                    # Plot fit line
-                    fit_line_powers = np.logspace(np.log10(fit_powers.min()), np.log10(fit_powers.max()), 100)
-                    fit_line_means = 10**(slope * np.log10(fit_line_powers) + intercept)
-                    ax_power_lower.plot(fit_line_powers, fit_line_means, '--', 
-                                      color=plot_color, alpha=0.6, linewidth=2,
-                                      label=f'{bias_mv:.1f} mV 2500-10000nW (n={slope:.2f})')
+                # Draw horizontal line for dark count baseline
+                if dark_count_lower > 0:
+                    ax_power_lower.axhline(y=dark_count_lower, color=plot_color, linestyle='--', 
+                                          linewidth=1.5, alpha=0.4)
             
             # Plot higher distribution means
             if higher_stats:
                 powers_higher = np.array(sorted(higher_stats.keys()))
                 means_higher = np.array([higher_stats[p]['mean'] for p in sorted(higher_stats.keys())])
+                
+                # Get dark count rate (0nW power)
+                dark_count_higher = higher_stats.get(0, {}).get('mean', 0)
+                
+                # Calculate dark count subtracted values
+                means_higher_subtracted = means_higher - dark_count_higher
+                
                 # Filter out zero or negative values for log-log plot
                 mask_higher = (powers_higher > 0) & (means_higher > 0)
-                ax_power_higher.plot(powers_higher[mask_higher], means_higher[mask_higher], 's', 
-                                    label=f'{bias_mv:.1f} mV', color=plot_color, alpha=0.9, markersize=6)
+                mask_higher_subtracted = (powers_higher > 0) & (means_higher_subtracted > 0)
                 
-                # Linear fit below 2500nW
-                fit_below_mask = (powers_higher < 2500) & (powers_higher > 0) & (means_higher > 0)
-                if np.sum(fit_below_mask) >= 2:
-                    fit_powers_below = powers_higher[fit_below_mask]
-                    fit_means_below = means_higher[fit_below_mask]
-                    log_powers_below = np.log10(fit_powers_below)
-                    log_means_below = np.log10(fit_means_below)
-                    slope_below, intercept_below = np.polyfit(log_powers_below, log_means_below, 1)
-                    fit_line_powers_below = np.logspace(np.log10(fit_powers_below.min()), np.log10(fit_powers_below.max()), 100)
-                    fit_line_means_below = 10**(slope_below * np.log10(fit_line_powers_below) + intercept_below)
-                    ax_power_higher.plot(fit_line_powers_below, fit_line_means_below, ':', 
-                                       color=plot_color, alpha=0.6, linewidth=2,
-                                       label=f'{bias_mv:.1f} mV <2500nW (n={slope_below:.2f})')
+                # Plot original data
+                ax_power_higher.plot(powers_higher[mask_higher], means_higher[mask_higher], 'o', 
+                                    label=f'{bias_mv:.1f} mV (original)', color=plot_color, alpha=0.5, markersize=6)
                 
-                # Linear fit from 2500nW to 10000nW
-                fit_mask = (powers_higher >= 2500) & (powers_higher <= 10000) & (powers_higher > 0) & (means_higher > 0)
-                if np.sum(fit_mask) >= 2:  # Need at least 2 points for fit
-                    fit_powers = powers_higher[fit_mask]
-                    fit_means = means_higher[fit_mask]
-                    # Linear fit in log-log space: log(y) = slope * log(x) + intercept
-                    log_powers = np.log10(fit_powers)
-                    log_means = np.log10(fit_means)
-                    slope, intercept = np.polyfit(log_powers, log_means, 1)
-                    # Plot fit line
-                    fit_line_powers = np.logspace(np.log10(fit_powers.min()), np.log10(fit_powers.max()), 100)
-                    fit_line_means = 10**(slope * np.log10(fit_line_powers) + intercept)
-                    ax_power_higher.plot(fit_line_powers, fit_line_means, '--', 
-                                       color=plot_color, alpha=0.6, linewidth=2,
-                                       label=f'{bias_mv:.1f} mV 2500-10000nW (n={slope:.2f})')
+                # Plot dark count subtracted data
+                ax_power_higher.plot(powers_higher[mask_higher_subtracted], means_higher_subtracted[mask_higher_subtracted], 's', 
+                                    label=f'{bias_mv:.1f} mV (dark subtracted)', color=plot_color, alpha=0.9, markersize=6)
+                
+                # Draw horizontal line for dark count baseline
+                if dark_count_higher > 0:
+                    ax_power_higher.axhline(y=dark_count_higher, color=plot_color, linestyle='--', 
+                                           linewidth=1.5, alpha=0.4)
             
             color_idx += 1
         

@@ -20,7 +20,7 @@
     "500kHz_20260204_2": {
       "enabled": "true",
       "folder": "500kHz_20260204_2/2-7/6K",
-      "bias_voltages": [64, 68, 72],
+      "bias_voltages": [72],
       "powers": "all",
       "dark_subtract_mode": "closest",
       "linear_fit": "false",

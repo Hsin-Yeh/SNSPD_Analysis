@@ -28,8 +28,8 @@ import shutil
 # =============================================================================
 # CONFIGURATION: Laser sync timing window for signal classification
 # =============================================================================
-LASER_SYNC_LOWER_LIMIT = 36  # Lower bound for true signal events
-LASER_SYNC_UPPER_LIMIT = 41  # Upper bound for true signal events
+LASER_SYNC_LOWER_LIMIT = 0  # Lower bound for true signal events
+LASER_SYNC_UPPER_LIMIT = 10  # Upper bound for true signal events
 
 # --- Custom selection functions for analysis variables ---
 def is_true_laser_sync(event):
@@ -275,6 +275,11 @@ def plot_variable_histogram(data, variable_name, filename, metadata, bins=200, s
     # Remove legend from histogram
     # plt.legend(fontsize=10)  # Removed
     plt.grid(True, alpha=0.3)
+    
+    # Set xlim if specified
+    if xlim is not None:
+        plt.xlim(xlim[0], xlim[1])
+    
     plt.tight_layout()
 
     print(f"  {variable_name}: mean={mean_val:.4f}±{sem_val:.4f}, std={std_val:.4f}")
@@ -380,7 +385,7 @@ def get_analysis_config():
             'name': 'True_laser_sync_time',
             'variable': 'laser_sync_arrival',
             'bins': 200,
-            'xlim': [197, 200],
+            'xlim': [LASER_SYNC_LOWER_LIMIT, LASER_SYNC_UPPER_LIMIT],
             'selection': is_true_laser_sync,
             'gaussian_fit': False,
             'histogram_plot': True,

@@ -165,7 +165,8 @@ def read_analysis_files(input_dir, pattern='*_analysis.json', recursive=True):
                 'bias_voltage': bias_voltage,
                 'power': power,
                 'timestamp': timestamp,
-                'filename': filename
+                'filename': filename,
+                'file_path': filepath
             }
             # Add all variable_statistics to entry
             results = analysis.get('variable_statistics', {})

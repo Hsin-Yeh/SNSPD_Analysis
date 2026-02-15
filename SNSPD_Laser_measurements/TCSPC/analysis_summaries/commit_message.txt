@@ -1,0 +1,29 @@
+Refactor TCSPC analysis: organize structure, implement external Block 0 reference, add adaptive fitting
+
+Major changes:
+- Reorganized directory structure (docs/, utils/, archive/)
+- Added comprehensive README.md with workflow documentation
+- Implemented external Block 0 reference system for dark count measurements
+- Added adaptive fit range for biases with limited low-power data (e.g., 66mV)
+- Updated power data parser for new interpolated format (1 degree resolution)
+- Fixed dark_count_rate None handling throughout read_phu.py
+- Added --debug flag for verbose output control
+- Added 73mV to combined plot configuration
+- Created tcspc_config.py for centralized configuration
+- Extracted analysis functions to tcspc_analysis.py module
+
+New features:
+- process_all_bias.py: Batch processing with external Block 0 references
+- create_combined_plot.py: Comparison plots with adaptive fit range
+- utils/inject_block0_from_0nW.py: Alternative Block 0 injection utility
+
+File organization:
+- docs/: Documentation and integration summaries
+- utils/: Utility scripts (Block 0 injection)
+- archive/: Old test files and debug scripts
+
+Data updates:
+- Added Rotation_10MHz_1degree_data_20260205.txt (356 points, 0-355 degrees)
+- Added interpolation scripts and reports in Attenuation/
+
+All 5 biases (66mV, 70mV, 73mV, 74mV, 78mV) now successfully processed

@@ -212,6 +212,10 @@ def main():
         print("\n--- Statistics vs Power (all biases) ---")
         for bias, bdata in bias_groups.items():
             plot_statistics_vs_power_bias.plot_statistics_vs_power(bias, bdata, output_dir, loglog_fit_range=loglog_fit_range)
+        
+        print("\n--- Stacked laser sync histograms vs Power (all biases) ---")
+        for bias, bdata in bias_groups.items():
+            plot_statistics_vs_power_bias.plot_laser_sync_histogram_stack_vs_power(bdata, output_dir)
           
     # Generate multi-variable overlay plots
     if args.mode in ['all', 'vs_bias']:

@@ -90,10 +90,8 @@ def plot_combined_bias_sweeps(data_files, output_dir=None):
         
         # Plot individual dark count points for each bias
         ax1_right.plot(bias_dark, counts_dark, marker='o', color='gray', markersize=6, 
-                      linewidth=1.5, alpha=0.6, label='Dark counts (total spectrum)', zorder=5)
+                      linewidth=1.5, alpha=0.6, label='Dark counts', zorder=5)
     
-    ax1.axhline(y=1.0, color='gray', linestyle='--', linewidth=1.5, alpha=0.5, label='Saturation')
-    ax1.axvline(x=90, color='purple', linestyle=':', linewidth=1.5, alpha=0.5, label='Isw (90 mV)')
     
     ax1.set_xlabel('Bias Voltage Ib (mV)', fontsize=12)
     ax1.set_ylabel('Normalized Detection Efficiency', fontsize=12, color='blue')
@@ -303,7 +301,6 @@ if __name__ == '__main__':
         base_output / "bias_sweep" / "0nW" / "bias_sweep_summary.json",
         base_output / "bias_sweep" / "99nW" / "bias_sweep_summary.json",
         base_output / "bias_sweep" / "1442nW" / "bias_sweep_summary.json",
-        base_output / "bias_sweep" / "9870nW" / "bias_sweep_summary.json",
     ]
     
     # Check if files exist
